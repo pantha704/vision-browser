@@ -1,0 +1,115 @@
+"""CLI entry point for vision-browser."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import shutil
+import sys
+from pathlib import Path
+
+from rich.console import Console
+
+from vision_browser.config import AppConfig
+from vision_browser.exceptions import (
+    BrowserNotInstalledError,
+    ConfigError,
+    VisionBrowserError,
+)
+
+console = Console()
+
+
+def _setup_logging(verbose: bool = False) -> None:
+    """Configure structured logging."""
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="vision-browser",
+        description="Fast vision-driven browser automation",
+    )
+    parser.add_argument("task", help="What you want to accomplish")
+    parser.add_argument("--url", "-u", help="Starting URL")
+    parser.add_argument(
+        "--desktop", "-d", action="store_true", help="Use desktop mode (xdotool)"
+    )
+    parser.add_argument("--config", "-c", type=Path, help="Path to config.yaml")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--brave", action="store_true",
+        help="Connect to running Brave browser (port 9222)"
+    )
+    parser.add_argument(
+        "--session", type=str, default="",
+        help="Session name for persistent cookies/auth"
+    )
+    parser.add_argument(
+        "--fast", action="store_true",
+        help="Use new Playwright-based fast orchestrator (experimental)"
+    )
+
+    args = parser.parse_args()
+    _setup_logging(verbose=args.verbose)
+
+    # Check agent-browser availability
+    if not args.desktop and shutil.which("agent-browser") is None:
+        console.print(
+            "[bold red]Error:[/bold red] agent-browser not found on PATH.\n"
+            "  Install: npm i -g agent-browser && agent-browser install"
+        )
+        sys.exit(1)
+
+    # Load and validate config
+    try:
+        cfg = AppConfig.from_yaml(args.config)
+    except FileNotFoundError:
+        console.print("[yellow]⚠ No config.yaml found, using defaults[/yellow]")
+        cfg = AppConfig()
+    except Exception as e:
+        console.print(f"[bold red]Config error:[/bold red] {e}")
+        sys.exit(1)
+
+    # CLI overrides
+    if args.brave:
+        cfg.browser.cdp_url = "http://localhost:9222"
+    if args.session:
+        cfg.browser.session_name = args.session
+
+    try:
+        from vision_browser.orchestrator import Orchestrator
+        from vision_browser.fast_orchestrator import FastOrchestrator
+        
+        if args.fast:
+            console.print("[bold blue]⚡ Using fast Playwright orchestrator[/bold blue]")
+            orchestrator = FastOrchestrator(cfg)
+            orchestrator.run(args.task, url=args.url)
+        else:
+            orchestrator = Orchestrator(cfg)
+            orchestrator.run(args.task, url=args.url, desktop_mode=args.desktop)
+        
+        # Clean shutdown for fast orchestrator
+        if args.fast and hasattr(orchestrator, 'close'):
+            orchestrator.close()
+    except ConfigError as e:
+        console.print(f"[bold red]Config error:[/bold red] {e}")
+        sys.exit(1)
+    except BrowserNotInstalledError as e:
+        console.print(f"[bold red]Browser error:[/bold red] {e}")
+        sys.exit(1)
+    except VisionBrowserError as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⏹️ Interrupted[/yellow]")
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,24 @@
+# Secrets & config
+config.yaml
+.env
+.env.local
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# agent-browser state
+auth.json
+*.har
+
+# Screenshots
+/tmp/vision-browser-*.png

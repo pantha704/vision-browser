@@ -1,0 +1,221 @@
+"""Vision model clients — NIM (primary) + Groq (fallback) with retry and rate limiting."""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import re
+import time
+from pathlib import Path
+
+import httpx
+from groq import Groq
+
+from vision_browser.config import AppConfig, VisionConfig
+from vision_browser.exceptions import (
+    RateLimitError,
+    TimeoutError,
+    VisionAPIError,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class VisionClient:
+    """Unified vision model interface with retry, rate limiting, and fallback."""
+
+    def __init__(self, cfg: VisionConfig, orchestrator_cfg: dict | None = None):
+        self.cfg = cfg
+        self.orchestrator_cfg = orchestrator_cfg or {}
+        self._max_retries = self.orchestrator_cfg.get("retry_attempts", 3)
+        self._backoff_base = self.orchestrator_cfg.get("retry_backoff_base", 1.0)
+        self._rate_delay = self.orchestrator_cfg.get("rate_limit_delay", 0.5)
+        self._last_request_time = 0.0
+        self._groq: Groq | None = None
+
+    def analyze(self, image_path: str, prompt: str) -> dict:
+        """Send image + prompt to vision model. Retry with backoff + fallback."""
+        for attempt in range(1, self._max_retries + 1):
+            # Rate limiting
+            self._apply_rate_limit()
+
+            try:
+                return self._nim_analyze(image_path, prompt)
+            except Exception as e:
+                logger.warning(f"NIM attempt {attempt} failed: {e}")
+                if attempt < self._max_retries:
+                    # Try Groq as fallback before retrying NIM
+                    try:
+                        return self._groq_analyze(image_path, prompt)
+                    except Exception as ge:
+                        logger.warning(f"Groq fallback also failed: {ge}")
+
+                if attempt == self._max_retries:
+                    raise VisionAPIError(
+                        f"All vision API attempts exhausted. Last error: {e}"
+                    ) from e
+
+                backoff = self._backoff_base * (2 ** (attempt - 1))
+                logger.info(f"Retrying in {backoff:.1f}s...")
+                time.sleep(backoff)
+
+        # Should never reach here
+        raise VisionAPIError("Unexpected: analyze loop exited without returning or raising")
+
+    def _apply_rate_limit(self) -> None:
+        """Enforce minimum delay between requests."""
+        elapsed = time.monotonic() - self._last_request_time
+        if elapsed < self._rate_delay:
+            sleep_time = self._rate_delay - elapsed
+            logger.debug(f"Rate limiting: sleeping {sleep_time:.2f}s")
+            time.sleep(sleep_time)
+        self._last_request_time = time.monotonic()
+
+    def _get_groq(self) -> Groq:
+        if self._groq is None:
+            api_key = self.cfg.groq_api_key
+            if not api_key:
+                raise VisionAPIError("GROQ_API_KEY not set")
+            self._groq = Groq(api_key=api_key)
+        return self._groq
+
+    def _groq_analyze(self, image_path: str, prompt: str) -> dict:
+        """Call Groq vision API."""
+        logger.debug("Calling Groq vision API")
+        client = self._get_groq()
+        image_b64 = self._encode_image(image_path)
+
+        try:
+            response = client.chat.completions.create(
+                model=self.cfg.groq_model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{image_b64}",
+                                },
+                            },
+                        ],
+                    }
+                ],
+                max_tokens=self.cfg.groq_max_tokens,
+                temperature=0.1,
+                response_format={"type": "json_object"},
+            )
+        except Exception as e:
+            if "429" in str(e):
+                raise RateLimitError(f"Groq rate limited: {e}") from e
+            raise VisionAPIError(f"Groq API error: {e}") from e
+
+        text = response.choices[0].message.content
+        if text is None:
+            raise VisionAPIError("Groq returned empty response")
+        return self._extract_json(text.strip())
+
+    def _nim_analyze(self, image_path: str, prompt: str) -> dict:
+        """Call NVIDIA NIM vision API via NVCF."""
+        logger.debug("Calling NIM vision API")
+        image_b64 = self._encode_image(image_path)
+
+        try:
+            resp = httpx.post(
+                f"https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/{self.cfg.nim_function_id}",
+                headers={
+                    "Authorization": f"Bearer {self.cfg.nim_api_key}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{image_b64}",
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                    "max_tokens": self.cfg.nim_max_tokens,
+                    "temperature": 0.1,
+                },
+                timeout=120,
+            )
+        except httpx.TimeoutException as e:
+            raise TimeoutError(f"NIM API timed out after 120s: {e}") from e
+        except httpx.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:  # type: ignore[union-attr]
+                raise RateLimitError(f"NIM rate limited: {e}") from e
+            raise VisionAPIError(f"NIM HTTP error: {e}") from e
+
+        if resp.status_code != 200:
+            raise VisionAPIError(
+                f"NIM API returned {resp.status_code}: {resp.text[:500]}"
+            )
+
+        try:
+            data = resp.json()
+        except json.JSONDecodeError as e:
+            raise VisionAPIError(f"NIM returned invalid JSON: {resp.text[:500]}") from e
+
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not text:
+            raise VisionAPIError("NIM returned empty response")
+        return self._extract_json(text.strip())
+
+    @staticmethod
+    def _extract_json(text: str) -> dict:
+        """Extract JSON from model output — handles code blocks, loose text, etc."""
+        # 1. Strip markdown code blocks
+        if "```" in text:
+            for block in text.split("```"):
+                if block.startswith("json"):
+                    block = block[4:]
+                block = block.strip()
+                if block.startswith("{"):
+                    try:
+                        return json.loads(block)
+                    except json.JSONDecodeError:
+                        pass
+
+        # 2. Try direct parse
+        if text.startswith("{"):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                pass
+
+        # 3. Stack-based balanced brace extraction
+        start = text.find("{")
+        if start != -1:
+            depth = 0
+            for i, ch in enumerate(text[start:], start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[start : i + 1]
+                        try:
+                            return json.loads(candidate)
+                        except json.JSONDecodeError:
+                            break
+
+        # 4. Last resort: wrap text in a safe structure
+        logger.warning(f"Could not extract JSON from model response. Wrapping text.")
+        return {"actions": [], "done": False, "reasoning": text.strip()}
+
+    @staticmethod
+    def _encode_image(path: str | Path) -> str:
+        """Base64-encode an image file."""
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
