@@ -1,8 +1,6 @@
 # Secrets & config
-config.yaml
 .env
 .env.local
-*.json
 
 # Python
 __pycache__/
@@ -22,3 +20,6 @@ auth.json
 
 # Screenshots
 /tmp/vision-browser-*.png
+
+# Local config (if user overrides)
+config.local.yaml

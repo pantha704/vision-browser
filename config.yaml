@@ -1,0 +1,34 @@
+# Default config - copy to ~/.config/vision-browser/config.yaml or set env vars
+# NOTE: API keys are loaded from environment variables only (GROQ_API_KEY, NVIDIA_API_KEY).
+# Never commit API keys to version control.
+vision:
+  # Primary: NVIDIA NIM Llama 3.2 90B Vision (API Catalog - NVCF)
+  provider: "nim"
+  nim_function_id: "24e0c62b-f7d0-44ba-8012-012c2a1aaf31"
+  nim_max_tokens: 1024
+
+  # Fallback: Groq (if you have vision access)
+  fallback_provider: "groq"
+  groq_model: "llama-3.2-11b-vision"
+  groq_max_tokens: 1024
+
+browser:
+  # Use agent-browser CLI (must be installed: npm i -g agent-browser)
+  tool: "agent-browser"
+  annotate: true  # Use annotated screenshots with numbered badges
+  viewport: [1280, 720]
+  timeout_ms: 30000  # 30s default for heavy sites
+  session_name: ""  # Set to persist cookies between runs (e.g. "default")
+  cdp_url: "http://localhost:9222"  # Connect to running Brave/Chrome
+
+desktop:
+  # Fallback for non-browser apps
+  screenshot_cmd: "scrot"
+  click_cmd: "xdotool mousemove {x} {y} click 1"
+  type_cmd: "xdotool type --delay 20 -- {text}"
+
+orchestrator:
+  max_turns: 20
+  batch_actions: true  # Plan multiple actions per turn
+  diff_mode: false  # Not yet implemented
+  max_prompt_elements: 30  # Max elements to show in prompt
