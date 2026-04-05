@@ -46,6 +46,37 @@ Return ONLY JSON.
 
 SCREENSHOT_PATH = Path("/tmp/vision-browser-screenshot.png")
 
+# JSON schema for structured output
+ACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "actions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["click", "fill", "press", "scroll", "wait", "navigate"]
+                    },
+                    "element": {"type": "integer"},
+                    "text": {"type": "string"},
+                    "key": {"type": "string"},
+                    "direction": {"type": "string", "enum": ["up", "down"]},
+                    "amount": {"type": "integer"},
+                    "url": {"type": "string", "format": "uri"}
+                },
+                "required": ["action"],
+                "additionalProperties": False
+            }
+        },
+        "done": {"type": "boolean"},
+        "reasoning": {"type": "string"}
+    },
+    "required": ["actions", "done", "reasoning"],
+    "additionalProperties": False
+}
+
 
 class FastOrchestrator:
     """Fast orchestrator using Playwright + DOM + Vision."""
@@ -129,9 +160,13 @@ class FastOrchestrator:
                     task=task, url=url, title=title, element_list=element_list
                 )
 
-                # 3. Send to vision model
+                # 3. Send to vision model with structured output schema
                 console.print("  🧠 Sending to vision model...")
-                result = self.vision.analyze(str(SCREENSHOT_PATH), prompt)
+                result = self.vision.analyze(
+                    str(SCREENSHOT_PATH), 
+                    prompt, 
+                    schema=ACTION_SCHEMA
+                )
 
                 # 4. Execute actions
                 actions = result.get("actions", [])

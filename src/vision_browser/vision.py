@@ -34,20 +34,20 @@ class VisionClient:
         self._last_request_time = 0.0
         self._groq: Groq | None = None
 
-    def analyze(self, image_path: str, prompt: str) -> dict:
+    def analyze(self, image_path: str, prompt: str, schema: dict | None = None) -> dict:
         """Send image + prompt to vision model. Retry with backoff + fallback."""
         for attempt in range(1, self._max_retries + 1):
             # Rate limiting
             self._apply_rate_limit()
 
             try:
-                return self._nim_analyze(image_path, prompt)
+                return self._nim_analyze(image_path, prompt, schema)
             except Exception as e:
                 logger.warning(f"NIM attempt {attempt} failed: {e}")
                 if attempt < self._max_retries:
                     # Try Groq as fallback before retrying NIM
                     try:
-                        return self._groq_analyze(image_path, prompt)
+                        return self._groq_analyze(image_path, prompt, schema)
                     except Exception as ge:
                         logger.warning(f"Groq fallback also failed: {ge}")
 
@@ -80,16 +80,16 @@ class VisionClient:
             self._groq = Groq(api_key=api_key)
         return self._groq
 
-    def _groq_analyze(self, image_path: str, prompt: str) -> dict:
-        """Call Groq vision API."""
+    def _groq_analyze(self, image_path: str, prompt: str, schema: dict | None = None) -> dict:
+        """Call Groq vision API with optional JSON schema enforcement."""
         logger.debug("Calling Groq vision API")
         client = self._get_groq()
         image_b64 = self._encode_image(image_path)
 
         try:
-            response = client.chat.completions.create(
-                model=self.cfg.groq_model,
-                messages=[
+            kwargs = {
+                "model": self.cfg.groq_model,
+                "messages": [
                     {
                         "role": "user",
                         "content": [
@@ -103,24 +103,58 @@ class VisionClient:
                         ],
                     }
                 ],
-                max_tokens=self.cfg.groq_max_tokens,
-                temperature=0.1,
-                response_format={"type": "json_object"},
-            )
+                "max_tokens": self.cfg.groq_max_tokens,
+                "temperature": 0.1,
+            }
+            
+            # Use function calling if schema provided, otherwise json_object
+            if schema:
+                kwargs["tools"] = [{
+                    "type": "function",
+                    "function": {
+                        "name": "browser_action",
+                        "description": "Execute browser automation actions",
+                        "parameters": schema,
+                        "strict": True,
+                    }
+                }]
+                kwargs["tool_choice"] = {"type": "function", "function": {"name": "browser_action"}}
+            else:
+                kwargs["response_format"] = {"type": "json_object"}
+
+            response = client.chat.completions.create(**kwargs)
         except Exception as e:
             if "429" in str(e):
                 raise RateLimitError(f"Groq rate limited: {e}") from e
             raise VisionAPIError(f"Groq API error: {e}") from e
 
+        # Handle function calling response
+        if schema and response.choices[0].message.tool_calls:
+            tool_call = response.choices[0].message.tool_calls[0]
+            try:
+                return json.loads(tool_call.function.arguments)
+            except json.JSONDecodeError as e:
+                raise VisionAPIError(f"Groq function arguments not valid JSON: {e}") from e
+
+        # Handle json_object response
         text = response.choices[0].message.content
         if text is None:
             raise VisionAPIError("Groq returned empty response")
         return self._extract_json(text.strip())
 
-    def _nim_analyze(self, image_path: str, prompt: str) -> dict:
-        """Call NVIDIA NIM vision API via NVCF."""
+    def _nim_analyze(self, image_path: str, prompt: str, schema: dict | None = None) -> dict:
+        """Call NVIDIA NIM vision API via NVCF with optional JSON schema."""
         logger.debug("Calling NIM vision API")
         image_b64 = self._encode_image(image_path)
+
+        # Build message with schema enforcement if provided
+        if schema:
+            prompt = (
+                f"Return ONLY valid JSON matching this schema:\n"
+                f"{json.dumps(schema, indent=2)}\n\n"
+                f"Task: {prompt}\n\n"
+                f"Return ONLY the JSON object, no markdown, no explanation."
+            )
 
         try:
             resp = httpx.post(

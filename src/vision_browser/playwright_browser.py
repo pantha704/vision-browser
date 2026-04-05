@@ -233,6 +233,10 @@ class PlaywrightBrowser:
                 act = action.get("action", "")
                 element = action.get("element")
                 
+                # Actions that may cause navigation/DOM changes
+                navigation_actions = {"click", "navigate", "open"}
+                is_navigation = act in navigation_actions
+                
                 match act:
                     case "click":
                         self.click(element)
@@ -257,12 +261,15 @@ class PlaywrightBrowser:
                 
                 success += 1
                 
-                # Wait for DOM to settle after actions that change it
-                if act in ("click", "navigate", "open"):
+                # After navigation actions, wait for DOM stability
+                if is_navigation:
                     try:
-                        self.wait("--load", "networkidle")
-                    except Exception:
-                        pass
+                        # Wait for network idle then wait for DOM to settle
+                        self._page.wait_for_load_state("networkidle", timeout=_ACTION_TIMEOUT)
+                        # Additional small delay for JS-rendered content
+                        self._page.wait_for_timeout(500)
+                    except Exception as e:
+                        logger.debug(f"Wait for DOM stability after {act}: {e}")
                 
             except Exception as e:
                 logger.debug(f"Action failed: {action} - {e}")

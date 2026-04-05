@@ -21,13 +21,62 @@ console = Console()
 
 
 def _setup_logging(verbose: bool = False) -> None:
-    """Configure structured logging."""
+    """Configure structured logging to both stdout and file."""
+    import logging.handlers
+    from datetime import datetime
+    
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    
+    # Create logs directory
+    log_dir = Path.home() / ".local" / "share" / "vision-browser" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Log file with timestamp
+    log_file = log_dir / f"vision-browser-{datetime.now().strftime('%Y%m%d')}.log"
+    
+    # Configure root logger
+    root_logger = logging.getLogger("vision_browser")
+    root_logger.setLevel(logging.DEBUG)  # Capture all levels
+    
+    # Format for console (human-readable)
+    console_format = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    
+    # Format for file (JSON structured)
+    class JsonFormatter(logging.Formatter):
+        def format(self, record: logging.LogRecord) -> str:
+            log_entry = {
+                "timestamp": self.formatTime(record, self.datefmt),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+            }
+            if record.exc_info and record.exc_info[0]:
+                log_entry["exception"] = self.formatException(record.exc_info)
+            return json.dumps(log_entry)
+    
+    file_format = JsonFormatter(datefmt="%Y-%m-%dT%H:%M:%S")
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+    console_handler.setFormatter(console_format)
+    root_logger.addHandler(console_handler)
+    
+    # File handler (rotating)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+    )
+    file_handler.setLevel(logging.DEBUG)  # Capture all to file
+    file_handler.setFormatter(file_format)
+    root_logger.addHandler(file_handler)
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging to: {log_file}")
 
 
 def main() -> None:
