@@ -12,6 +12,7 @@ import httpx
 from groq import Groq
 
 from vision_browser.config import VisionConfig
+from vision_browser.circuit_breaker import CircuitBreaker, CircuitOpenError
 from vision_browser.exceptions import (
     ModelResponseError,
     RateLimitError,
@@ -26,6 +27,7 @@ class VisionClient:
     """Unified vision model interface with retry, rate limiting, and fallback."""
 
     def __init__(self, cfg: VisionConfig, orchestrator_cfg: dict | None = None):
+
         self.cfg = cfg
         self.orchestrator_cfg = orchestrator_cfg or {}
         self._max_retries = self.orchestrator_cfg.get("retry_attempts", 3)
@@ -33,15 +35,43 @@ class VisionClient:
         self._rate_delay = self.orchestrator_cfg.get("rate_limit_delay", 0.5)
         self._last_request_time = 0.0
         self._groq: Groq | None = None
+        self._circuit_breaker = CircuitBreaker(
+            name="vision-api",
+            failure_threshold=self.orchestrator_cfg.get("circuit_breaker_threshold", 5),
+            timeout=self.orchestrator_cfg.get("circuit_breaker_timeout", 60.0),
+            success_threshold=self.orchestrator_cfg.get("circuit_breaker_successes", 2),
+        )
+
+    @property
+    def circuit_breaker(self):
+        """Expose circuit breaker for monitoring."""
+        return self._circuit_breaker
 
     def analyze(self, image_path: str, prompt: str, schema: dict | None = None) -> dict:
-        """Send image + prompt to vision model. Retry with backoff + fallback."""
+        """Send image + prompt to vision model. Retry with backoff + fallback.
+
+        Protected by circuit breaker: after 5 consecutive failures, the circuit
+        opens and calls fail immediately with CircuitOpenError (no API hit).
+        After 60s timeout, one test request is allowed through.
+        """
         for attempt in range(1, self._max_retries + 1):
             # Rate limiting
             self._apply_rate_limit()
 
             try:
-                return self._nim_analyze(image_path, prompt, schema)
+                # Circuit breaker wraps the NIM call
+                return self._circuit_breaker.call(
+                    lambda: self._nim_analyze(image_path, prompt, schema)
+                )
+            except CircuitOpenError as e:
+                # Circuit is open -- try Groq fallback if available
+                logger.warning(f"Circuit breaker open: {e}")
+                try:
+                    return self._groq_analyze(image_path, prompt, schema)
+                except Exception as ge:
+                    raise VisionAPIError(
+                        f"Circuit breaker open, Groq fallback also failed: {ge}"
+                    ) from ge
             except ModelResponseError:
                 # Model returned invalid JSON -- retry with stricter prompt
                 if attempt < self._max_retries:

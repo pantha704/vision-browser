@@ -1,11 +1,11 @@
 ---
 name: vision-browser
-description: "Skill for the Vision_browser area of vision-browser. 106 symbols across 16 files."
+description: "Skill for the Vision_browser area of vision-browser. 110 symbols across 17 files."
 ---
 
 # Vision_browser
 
-106 symbols | 16 files | Cohesion: 75%
+110 symbols | 17 files | Cohesion: 73%
 
 ## When to Use
 
@@ -22,7 +22,7 @@ description: "Skill for the Vision_browser area of vision-browser. 106 symbols a
 | `tests/test_milestone2.py` | test_init_defaults, test_broadcast, test_connect_disconnect, test_send_screenshot_missing_file, test_send_navigation (+4) |
 | `src/vision_browser/websocket_preview.py` | WebSocketPreview, broadcast, send_screenshot, send_navigation, send_action (+4) |
 | `src/vision_browser/playwright_browser.py` | screenshot, click, fill, press, scroll (+4) |
-| `src/vision_browser/screenshot_manager.py` | list_screenshots, cleanup, _handler, _enforce_retention, __exit__ (+2) |
+| `src/vision_browser/screenshot_manager.py` | cleanup, _handler, __exit__, next_path, list_screenshots (+4) |
 | `src/vision_browser/mcp_server.py` | _handle_navigate, _handle_screenshot, _handle_click, _handle_fill, _handle_extract (+2) |
 | `src/vision_browser/exceptions.py` | VisionBrowserError, ConfigError, BrowserError, BrowserNotInstalledError, ActionExecutionError (+1) |
 | `tests/test_vision_and_desktop.py` | test_type_text, test_type_text_empty, test_type_text_too_long, test_type_text_with_delay, test_get_mouse_pos (+1) |
@@ -73,7 +73,7 @@ Start here when exploring this area:
 | `Execute_batch → TimeoutError` | cross_community | 5 |
 | `Execute_batch → BrowserError` | cross_community | 5 |
 | `_run_desktop → VisionAPIError` | cross_community | 5 |
-| `_analyze_with_json_retry → VisionAPIError` | cross_community | 5 |
+| `Run → Title` | cross_community | 4 |
 | `Run → _apply_rate_limit` | cross_community | 4 |
 | `Run → _build_stricter_prompt` | cross_community | 4 |
 | `Run → ActionExecutionError` | cross_community | 4 |
@@ -82,7 +82,7 @@ Start here when exploring this area:
 
 | Area | Connections |
 |------|-------------|
-| Tests | 13 calls |
+| Tests | 17 calls |
 
 ## How to Explore
 

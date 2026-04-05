@@ -75,6 +75,11 @@ class OrchestratorConfig(BaseModel):
     retry_backoff_base: float = Field(default=1.0, ge=0.1, le=10.0)
     rate_limit_delay: float = Field(default=0.5, ge=0.0, le=60.0)
 
+    # Circuit breaker for Vision API resilience
+    circuit_breaker_threshold: int = Field(default=5, ge=1, le=20)
+    circuit_breaker_timeout: float = Field(default=60.0, ge=5.0, le=600.0)
+    circuit_breaker_successes: int = Field(default=2, ge=1, le=10)
+
 
 class AppConfig(BaseModel):
     """Root application configuration."""

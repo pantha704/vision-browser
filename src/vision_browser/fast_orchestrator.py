@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import signal
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -100,6 +101,7 @@ class FastOrchestrator:
                 threshold=cfg.orchestrator.diff_threshold
             )
         self._diff_log: list[dict] = []  # Diff capture log for debugging
+        self._last_vision_result: dict[str, Any] = {}  # Cache last analysis to skip unchanged
 
         # Task metrics for CLI summary
         self._task_start_time: float = 0.0
@@ -207,13 +209,18 @@ class FastOrchestrator:
                     task=task, url=url, title=title, element_list=element_list
                 )
 
-                # 3. Send to vision model with structured output schema
-                console.print("  🧠 Sending to vision model...")
-                result = self.vision.analyze(
-                    str(self.screenshots.current_path),
-                    prompt,
-                    schema=ACTION_SCHEMA
-                )
+                # 3. Send to vision model (skip if screenshot unchanged)
+                if diff_changed or not self._last_vision_result:
+                    console.print("  🧠 Sending to vision model...")
+                    result = self.vision.analyze(
+                        str(self.screenshots.current_path),
+                        prompt,
+                        schema=ACTION_SCHEMA
+                    )
+                    self._last_vision_result = result
+                else:
+                    console.print("  🧠 Screenshot unchanged — skipping Vision API (using cached result)")
+                    result = self._last_vision_result
 
                 # 4. Execute actions
                 actions = result.get("actions", [])

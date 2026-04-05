@@ -1,53 +1,57 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.7
-milestone_name: production-readiness-and-scale
-status: in-progress
-last_updated: "2026-04-05T12:00:00.000Z"
+milestone_name: Production Readiness
+status: in_progress
+last_updated: "2026-04-05T19:00:00.000Z"
 last_activity: 2026-04-05
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 6
+  completed_phases: 3
+  total_plans: 3
+  completed_plans: 3
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-04-05 — Milestone v0.7 Production Readiness & Scale started
+Phase: 17 (CI/CD Pipeline) — COMPLETE
+Plan: All plans complete
+Status: v0.7 in progress — 3/6 phases complete
+Last activity: 2026-04-05
 
 ## Phase History
 
 | Phase | Title | Started | Completed | Outcome |
 |-------|-------|---------|-----------|---------|
-| *(Previous milestone phases archived to .planning/milestones/v0.5-phases/)* |
-| 10 | Test Infrastructure & Mocks | 2026-04-05 | 2026-04-05 | PASS -- Mock infra built, tests migrated, 169 tests pass |
-| 11 | Model JSON Compliance | 2026-04-05 | 2026-04-05 | PASS -- Validation pipeline, retry with stricter prompts, ModelResponseError |
-| 12 | Differential Screenshot Integration | 2026-04-05 | 2026-04-05 | PASS -- Wired into orchestrator, config toggle, cleanup |
-| 13 | MCP Server Hardening | 2026-04-05 | 2026-04-05 | PASS -- Health tool, error recovery, state tracking, structured errors |
-| 14 | CLI Improvements | 2026-04-05 | 2026-04-05 | PASS -- Task summary, readable errors, Rich fallback |
+| 15 | Diff Screenshot Skip Optimization | 2026-04-05 | 2026-04-05 | PASS — Vision API skipped when screenshot unchanged, saves cost |
+| 16 | Circuit Breaker for Vision API | 2026-04-05 | 2026-04-05 | PASS — CircuitBreaker class, 10 tests, integrated into VisionClient |
+| 17 | CI/CD Pipeline | 2026-04-05 | 2026-04-05 | PASS — GitHub Actions, multi-Python matrix, ruff, coverage |
+| 18 | Rate Limit Persistence | — | — | Pending |
+| 19 | MCP Integration Tests | — | — | Pending |
+| 20 | MultiBrowserManager Integration | — | — | Pending |
 
 ## Test Summary
 
 | Metric | Value |
 |--------|-------|
-| Total tests | 222 |
-| Phase 11 new tests | 16 |
-| Phase 12 new tests | 13 |
-| Phase 13 new tests | 17 |
-| Phase 14 new tests | 7 |
-| Tests updated (existing) | 5 |
+| Total tests | 240 |
+| Phase 15 tests | 4 (diff screenshot + config) |
+| Phase 16 tests | 10 (circuit breaker) + 2 (config) |
+| Overall coverage | 61% |
 
-## Bug Fixes
+## Key Deliverables
 
-| Bug | Location | Fix |
-|-----|----------|-----|
-| httpx.HTTPError .response AttributeError | vision.py line 190 | Split into HTTPStatusError + generic HTTPError handlers |
+| File | Purpose |
+|------|---------|
+| `circuit_breaker.py` | CircuitBreaker class with CLOSED/OPEN/HALF_OPEN states |
+| `config.py` | Added circuit_breaker_threshold, circuit_breaker_timeout, circuit_breaker_successes |
+| `vision.py` | Wrapped NIM calls with CircuitBreaker, Groq fallback on open |
+| `fast_orchestrator.py` | Skip Vision API when screenshot unchanged (diff optimization) |
+| `.github/workflows/ci.yml` | GitHub Actions CI/CD pipeline |
+| `test_circuit_breaker.py` | 10 circuit breaker unit tests |
+| `test_diff_and_circuit_breaker.py` | 6 diff + config tests |
 
 ## Context Handoffs
 
@@ -55,4 +59,4 @@ _None_
 
 ---
 
-*Last updated: 2026-04-05 after v0.6 milestone complete*
+*Last updated: 2026-04-05 after v0.7 phases 15-17 complete*

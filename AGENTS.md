@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **vision-browser** (751 symbols, 2453 relationships, 65 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **vision-browser** (756 symbols, 2452 relationships, 65 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -97,7 +97,7 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 | Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
 | Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-| Work in the Tests area (300 symbols) | `.claude/skills/generated/tests/SKILL.md` |
-| Work in the Vision_browser area (106 symbols) | `.claude/skills/generated/vision-browser/SKILL.md` |
+| Work in the Tests area (296 symbols) | `.claude/skills/generated/tests/SKILL.md` |
+| Work in the Vision_browser area (110 symbols) | `.claude/skills/generated/vision-browser/SKILL.md` |
 
 <!-- gitnexus:end -->
