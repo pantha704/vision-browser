@@ -12,7 +12,7 @@ Navigate, search, fill forms, and extract data from any website using natural la
 
 ## Context
 
-- **Status:** v0.5 shipped — full ecosystem with MCP, WebSocket, multi-browser, sessions
+- **Status:** v0.6 started — Developer Experience & Reliability
 - **Repository:** https://github.com/pantha704/vision-browser
 - **Type:** Python library + CLI tool
 - **License:** MIT
@@ -24,7 +24,7 @@ Navigate, search, fill forms, and extract data from any website using natural la
 - **Browser:** Playwright (CDP for Chromium, standard for Firefox/WebKit)
 - **Vision AI:** NVIDIA NIM Llama 3.2 90B Vision (primary), Groq (fallback)
 - **Legacy:** agent-browser CLI wrapper (preserved as fallback)
-- **Testing:** pytest (66+ tests across all modules)
+- **Testing:** pytest (151+ tests across all modules)
 - **Protocols:** MCP (Model Context Protocol), WebSocket
 
 ### Architecture
@@ -52,7 +52,7 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 - ✅ Structured logging (JSON file + console)
 - ✅ Pydantic config models with validation
 - ✅ Custom exception hierarchy
-- ✅ 66+ unit tests passing
+- ✅ 151+ unit tests passing across all modules
 - ✅ MCP server with 6 tools (navigate, screenshot, click, fill, extract, execute)
 - ✅ WebSocket live preview with HTML dashboard
 - ✅ Multi-browser support (Chromium, Firefox, WebKit)
@@ -63,7 +63,10 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 ### Known Gaps
 
 - Model JSON compliance (NIM returns prose ~50% — partially mitigated by schema enforcement)
-- Phase 2.0 (VisionClient + DesktopController tests) completed without formal SUMMARY.md
+- Differential screenshots not yet integrated into orchestrator execution flow
+- CLI lacks real-time progress indicators during task execution
+- MCP server lacks error recovery and connection lifecycle management
+- Test coverage gaps in VisionClient + DesktopController (Phase 2.0 completed without formal SUMMARY)
 
 ---
 
@@ -94,6 +97,17 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 - [ ] Full test coverage — Phase 2.0 gap (VisionClient + DesktopController tests)
 - [ ] Model JSON compliance improvement
 - [ ] Next milestone features (TBD)
+
+## Current Milestone: v0.6 Developer Experience & Reliability
+
+**Goal:** Harden the platform by closing known gaps, integrating existing modules into the core flow, and improving developer experience for production readiness.
+
+**Target features:**
+- Model JSON compliance — structured output enforcement, retry strategies, fallback chains
+- Differential screenshot integration — auto-capture in orchestrator execution flow
+- MCP server hardening — error recovery, connection lifecycle, additional tools
+- CLI improvements — progress indicators, better error messages, task reporting
+- Test coverage completion — close remaining gaps in VisionClient + DesktopController
 
 ### Out of Scope
 
@@ -138,4 +152,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-05 after v0.5 Ecosystem Integration milestone*
+*Last updated: 2026-04-05 after v0.6 milestone start*

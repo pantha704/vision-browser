@@ -1,5 +1,18 @@
 # Milestones
 
+## v0.6 Developer Experience & Reliability (In Progress)
+
+**Goal:** Harden the platform by closing known gaps, integrating existing modules into the core flow, and improving developer experience for production readiness.
+
+**Target features:**
+- Model JSON compliance — structured output enforcement, retry strategies, fallback chains
+- Differential screenshot integration — auto-capture in orchestrator execution flow
+- MCP server hardening — error recovery, connection lifecycle, additional tools
+- CLI improvements — progress indicators, better error messages, task reporting
+- Test coverage completion — close remaining gaps in VisionClient + DesktopController
+
+---
+
 ## v0.5 Ecosystem Integration (Shipped: 2026-04-05)
 
 **Phases completed:** 9 phases, 9 plans, 66 tasks

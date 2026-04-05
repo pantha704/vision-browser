@@ -1,59 +1,66 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.4
-milestone_name: — Production Ready
-status: completed
-last_updated: "2026-04-05T09:46:30.530Z"
+milestone: v0.6
+milestone_name: Developer Experience & Reliability
+status: defining_requirements
+last_updated: "2026-04-05T12:00:00.000Z"
 progress:
-  total_phases: 9
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 8
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # State
 
-## Current Phase
+## Current Position
 
-- **Milestone:** Complete
-- **Phase:** All 9 phases completed
-- **Status:** v0.5 milestone complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-05 — Milestone v0.6 started
 
 ## Phase History
 
 | Phase | Title | Started | Completed | Outcome |
 |-------|-------|---------|-----------|---------|
-| 1.0 | Test Coverage -- FastOrchestrator + CLI + inject.js | 2026-04-05 | 2026-04-05 | Complete -- 23 new tests, 2 bugs fixed |
-| 2.0 | Test Coverage -- VisionClient + DesktopController | 2026-04-05 | 2026-04-05 | Complete -- 42 tests |
-| 3.0 | Differential Screenshots | 2026-04-05 | 2026-04-05 | Complete -- diff_screenshot.py + 8 tests |
-| 4.0 | Persistent Session Management | 2026-04-05 | 2026-04-05 | Complete -- session.py + integration |
-| 5.0 | Polish -- Logging, Error Messages, Documentation | 2026-04-05 | 2026-04-05 | Complete -- json import fix, cfg scoping fix |
-| 2.1 | MCP Server Mode | 2026-04-05 | 2026-04-05 | Complete -- mcp_server.py + 13 tests |
-| 2.2 | WebSocket Live Preview | 2026-04-05 | 2026-04-05 | Complete -- websocket_preview.py + 9 tests |
-| 2.3 | Firefox + Safari Support | 2026-04-05 | 2026-04-05 | Complete -- multi_browser.py + 4 tests |
-| 2.4 | Concurrent Multi-Browser Sessions | 2026-04-05 | 2026-04-05 | Complete -- session_pool.py + 5 tests |
+| *(Previous milestone phases archived to .planning/milestones/v0.5-phases/)* |
 
 ## Session History
 
 | Date | Activity | Outcome |
 |------|----------|---------|
-| 2026-04-05 | Autonomous workflow -- all 9 phases executed | 139 tests passing, 6 new modules |
+| 2026-04-05 | New milestone v0.6 started | Defining requirements |
 
 ## In-Progress Work
 
-_None -- all phases complete_
+_Milestone v0.6: Defining requirements_
 
 ## Context Handoffs
 
 _None_
 
-## Summary
+## Accumulated Context
 
-- **Total tests:** 139 passing (up from 34)
-- **New modules:** diff_screenshot.py, session.py, mcp_server.py, websocket_preview.py, multi_browser.py, session_pool.py
-- **Bugs fixed:** missing json import in cli.py, cfg UnboundLocalError in cli.py
-- **Coverage:** Core components, API clients, CLI, desktop controller, session management, MCP server, WebSocket preview, multi-browser, session pool
+### What's Built (v0.1–v0.5)
+- FastOrchestrator (Playwright CDP) — primary mode (~2-5s/turn)
+- Orchestrator (agent-browser CLI) — legacy mode (~30-60s/turn)
+- VisionClient + DesktopController with badge injection
+- MCP server with 6 tools
+- WebSocket live preview with HTML dashboard
+- Multi-browser support (Chromium, Firefox, WebKit)
+- Concurrent session pool with isolation
+- Differential screenshots (standalone module)
+- Persistent session management
+- 151 tests passing
+
+### Known Gaps
+- Model JSON compliance (~50% structured output from NIM)
+- Differential screenshots not integrated into orchestrator flow
+- CLI lacks progress indicators
+- MCP server needs error recovery
+- Test coverage gaps in VisionClient + DesktopController
 
 ---
 
-*Last updated: 2026-04-05 after autonomous workflow completion*
+*Last updated: 2026-04-05 after v0.6 milestone start*
