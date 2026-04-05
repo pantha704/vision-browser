@@ -28,4 +28,4 @@ build-backend = "hatchling.build"
 packages = ["src/vision_browser"]
 
 [dependency-groups]
-dev = ["ruff>=0.4.0", "pytest>=8.0.0"]
+dev = ["ruff>=0.4.0", "pytest>=8.0.0", "pytest-httpx>=0.27.0"]
