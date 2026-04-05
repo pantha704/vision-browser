@@ -104,16 +104,21 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 - [ ] Next milestone features (TBD — v0.7 planning)
 - [ ] Improve overall package coverage (orchestrator.py at 12%, browser.py at 28%)
 
-## Current Milestone: v0.7 (TBD)
+## Current Milestone: v0.7 Production Readiness & Scale
 
-**Previous milestone:** v0.6 Developer Experience & Reliability (shipped 2026-04-05)
+**Goal:** Close all remaining production gaps to make vision-browser production-ready.
 
-**v0.6 delivered:**
-- 5 phases, 222 tests passing (93%+ coverage on core modules)
-- Model JSON compliance with progressive retry
-- Diff screenshot integration in orchestrator flow
-- MCP server hardening with health tool and error recovery
-- CLI polish with Rich progress indicators and readable errors
+**Target features:**
+- Wire differential screenshots to Vision API (analyze integration)
+- Circuit breaker for sustained API failures
+- Rate limit persistence across runs
+- MCP server integration tests (end-to-end tool calls)
+- Multi-browser manager browser launch integration
+- Session pool concurrent execution tests
+- WebSocket HTML dashboard served automatically
+- Performance benchmarks and regression tracking
+- Documentation site / API reference (beyond README)
+- CI/CD pipeline (GitHub Actions)
 
 ### Out of Scope
 
