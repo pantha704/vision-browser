@@ -4,7 +4,7 @@
 
 **Fast vision-driven browser automation** using **Playwright + NVIDIA NIM Llama 3.2 90B Vision**.
 
-Navigate, search, fill forms, and extract data from any website using natural language commands. 10x faster than CLI-based approaches with DOM-validated element refs for 80-95% accuracy.
+Navigate, search, fill forms, and extract data from any website using natural language commands. 10x faster than CLI-based approaches with DOM-validated element refs for 80-95% accuracy. Now with MCP server mode, WebSocket live preview, multi-browser support, and concurrent session management.
 
 **Core value:** Automate any web task by describing it in plain English — no selectors, no scripts, no coding.
 
@@ -12,7 +12,7 @@ Navigate, search, fill forms, and extract data from any website using natural la
 
 ## Context
 
-- **Status:** MVP shipped — core architecture working, 34 tests passing
+- **Status:** v0.5 shipped — full ecosystem with MCP, WebSocket, multi-browser, sessions
 - **Repository:** https://github.com/pantha704/vision-browser
 - **Type:** Python library + CLI tool
 - **License:** MIT
@@ -21,20 +21,27 @@ Navigate, search, fill forms, and extract data from any website using natural la
 ### Technical Stack
 
 - **Runtime:** Python 3.14
-- **Browser:** Playwright (persistent CDP connection to Brave/Chrome)
+- **Browser:** Playwright (CDP for Chromium, standard for Firefox/WebKit)
 - **Vision AI:** NVIDIA NIM Llama 3.2 90B Vision (primary), Groq (fallback)
 - **Legacy:** agent-browser CLI wrapper (preserved as fallback)
-- **Testing:** pytest (34 tests: 22 core + 12 Playwright)
+- **Testing:** pytest (66+ tests across all modules)
+- **Protocols:** MCP (Model Context Protocol), WebSocket
 
 ### Architecture
 
 ```
 Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (50ms)
+                                              ↓
+                                    MCP Server / WebSocket Live Preview
 ```
 
-- `FastOrchestrator` (Playwright) — new, fast mode (~2-5s/turn)
+- `FastOrchestrator` (Playwright) — primary mode (~2-5s/turn)
 - `Orchestrator` (agent-browser CLI) — legacy mode (~30-60s/turn)
-- Both share `VisionClient`, `Config`, `Exceptions`
+- `MCPServer` — 6 tools for AI agent integration
+- `WebSocketPreview` — real-time browser state streaming
+- `MultiBrowserManager` — unified API across Chromium/Firefox/WebKit
+- `SessionPool` — concurrent multi-browser session management
+- Both orchestrators share `VisionClient`, `Config`, `Exceptions`
 
 ### What's Working
 
@@ -42,17 +49,21 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 - ✅ Badge overlay injection with CSS selector generation
 - ✅ A11y tree extraction for model context
 - ✅ NIM Vision API integration with retry/backoff
-- ✅ Structured logging (JSON to file + human-readable console)
+- ✅ Structured logging (JSON file + console)
 - ✅ Pydantic config models with validation
 - ✅ Custom exception hierarchy
-- ✅ 34 unit tests passing
+- ✅ 66+ unit tests passing
+- ✅ MCP server with 6 tools (navigate, screenshot, click, fill, extract, execute)
+- ✅ WebSocket live preview with HTML dashboard
+- ✅ Multi-browser support (Chromium, Firefox, WebKit)
+- ✅ Concurrent session pool with isolation
+- ✅ Differential screenshots (binary + pixel-level diffing)
+- ✅ Persistent session management (cookies, storage)
 
 ### Known Gaps
 
-- 6 testing coverage gaps (FastOrchestrator, VisionClient, CLI, inject.js, DesktopController, legacy Orchestrator)
 - Model JSON compliance (NIM returns prose ~50% — partially mitigated by schema enforcement)
-- No differential screenshots (sends full image every turn)
-- No MCP server mode or WebSocket live preview
+- Phase 2.0 (VisionClient + DesktopController tests) completed without formal SUMMARY.md
 
 ---
 
@@ -71,23 +82,24 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 - ✓ Graceful shutdown (signal handlers) — existing
 - ✓ Browser crash recovery — existing
 - ✓ Structured file logging (JSON, rotating) — existing
-- ✓ 34 unit tests passing — existing
+- ✓ Differential screenshots — v0.4
+- ✓ Persistent session management — v0.4
+- ✓ MCP server mode — v0.5
+- ✓ WebSocket live preview — v0.5
+- ✓ Multi-browser support (Firefox, Safari) — v0.5
+- ✓ Concurrent multi-browser sessions — v0.5
 
 ### Active
 
-- [ ] Differential screenshots (changed regions only)
-- [ ] MCP server mode for AI agent ecosystems
-- [ ] WebSocket live preview for debugging
-- [ ] Persistent session/cookie management
-- [ ] Full test coverage (6 gaps identified)
-- [ ] Differential screenshots to reduce bandwidth + API cost
+- [ ] Full test coverage — Phase 2.0 gap (VisionClient + DesktopController tests)
+- [ ] Model JSON compliance improvement
+- [ ] Next milestone features (TBD)
 
 ### Out of Scope
 
-- [ ] Multi-browser support (Firefox, Safari) — Playwright supports but out of scope for v1
-- [ ] Mobile device emulation — desktop-only for now
-- [ ] Video recording — screenshots only
-- [ ] Distributed/cluster automation — single browser session only
+- Mobile device emulation — desktop-only for now
+- Video recording — screenshots only
+- Distributed/cluster automation — single browser session only
 
 ---
 
@@ -95,11 +107,15 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Playwright over agent-browser CLI | 10x faster (no subprocess overhead), persistent CDP connection | FastOrchestrator is primary mode |
-| NVIDIA NIM over Groq primary | Groq vision models decommissioned on current account | NIM primary, Groq fallback |
-| Badge injection + CSS selectors | DOM-validated refs eliminate model hallucination | 80-95% accuracy vs 40-60% |
-| Dual orchestrator pattern | Preserve working legacy mode during transition | Both modes available via --fast flag |
-| MIT License | Maximum adoption for developer tool | Published on GitHub |
+| Playwright over agent-browser CLI | 10x faster (no subprocess overhead), persistent CDP connection | ✓ FastOrchestrator is primary mode |
+| NVIDIA NIM over Groq primary | Groq vision models decommissioned on current account | ✓ NIM primary, Groq fallback works |
+| Badge injection + CSS selectors | DOM-validated refs eliminate model hallucination | ✓ 80-95% accuracy vs 40-60% |
+| Dual orchestrator pattern | Preserve working legacy mode during transition | ✓ Both modes available via --fast flag |
+| MIT License | Maximum adoption for developer tool | ✓ Published on GitHub |
+| MCP server integration | AI agent ecosystem compatibility | ✓ Works with Claude, Cursor, other MCP clients |
+| Multi-engine support | Firefox + Safari via Playwright engines | ✓ Unified API, CDP restricted to Chromium |
+| Session pool architecture | Independent contexts for concurrency | ✓ Isolation verified, clean shutdown |
+| Differential screenshots | Reduce bandwidth and API costs | ✓ Binary fast path, PIL optional for regions |
 
 ---
 
@@ -122,4 +138,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-05 after GSD initialization*
+*Last updated: 2026-04-05 after v0.5 Ecosystem Integration milestone*
