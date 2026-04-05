@@ -17,12 +17,33 @@ from vision_browser.exceptions import (
 
 
 # Allowed keyboard keys for press action
-_ALLOWED_KEYS = frozenset({
-    "Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowLeft", "ArrowRight",
-    "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", "Space",
-    "Control+a", "Control+c", "Control+v", "Control+x", "Control+z",
-    "Meta+a", "Meta+c", "Meta+v", "Meta+x",
-})
+_ALLOWED_KEYS = frozenset(
+    {
+        "Enter",
+        "Tab",
+        "Escape",
+        "Backspace",
+        "Delete",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        "Space",
+        "Control+a",
+        "Control+c",
+        "Control+v",
+        "Control+x",
+        "Control+z",
+        "Meta+a",
+        "Meta+c",
+        "Meta+v",
+        "Meta+x",
+    }
+)
 
 # Navigation timeout per operation (ms)
 _NAV_TIMEOUT_MS = 60_000
@@ -48,7 +69,12 @@ class AgentBrowser:
             args.append("--args")
             args.append("--no-sandbox")
             if self.cfg.session_name:
-                args = ["--session-name", self.cfg.session_name, "--args", "--no-sandbox"]
+                args = [
+                    "--session-name",
+                    self.cfg.session_name,
+                    "--args",
+                    "--no-sandbox",
+                ]
         return args
 
     def _check_installed(self) -> None:
@@ -209,7 +235,8 @@ class AgentBrowser:
     def eval(self, js: str) -> str:
         """Execute JavaScript in the browser context."""
         import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".js", delete=False) as f:
             f.write(js)
             f.flush()
             return self._run(["eval", f.name])
@@ -274,6 +301,7 @@ class AgentBrowser:
             except Exception as e:
                 # Log but continue executing remaining actions
                 from vision_browser.exceptions import ActionExecutionError
+
                 if isinstance(e, ActionExecutionError):
                     raise
                 # Non-critical failures (e.g. click on disappeared element) continue
@@ -298,6 +326,4 @@ def _validate_url(url: str) -> None:
     if not url:
         raise ActionExecutionError("Empty URL")
     if not (url.startswith("http://") or url.startswith("https://")):
-        raise ActionExecutionError(
-            f"Only http/https URLs allowed, got: {url[:80]}"
-        )
+        raise ActionExecutionError(f"Only http/https URLs allowed, got: {url[:80]}")

@@ -8,12 +8,30 @@ from vision_browser.config import DesktopConfig
 from vision_browser.exceptions import ActionExecutionError
 
 # Allowed keys for xdotool key press
-_ALLOWED_DESKTOP_KEYS = frozenset({
-    "Return", "Enter", "Tab", "Escape", "BackSpace", "Delete",
-    "Left", "Right", "Up", "Down", "Home", "End", "Page_Up", "Page_Down",
-    "Control_L+a", "Control_L+c", "Control_L+v", "Control_L+x",
-    "Alt_L+Tab", "Alt_L+F4",
-})
+_ALLOWED_DESKTOP_KEYS = frozenset(
+    {
+        "Return",
+        "Enter",
+        "Tab",
+        "Escape",
+        "BackSpace",
+        "Delete",
+        "Left",
+        "Right",
+        "Up",
+        "Down",
+        "Home",
+        "End",
+        "Page_Up",
+        "Page_Down",
+        "Control_L+a",
+        "Control_L+c",
+        "Control_L+v",
+        "Control_L+x",
+        "Alt_L+Tab",
+        "Alt_L+F4",
+    }
+)
 
 
 class DesktopController:

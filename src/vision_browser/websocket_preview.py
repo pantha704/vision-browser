@@ -58,11 +58,14 @@ class WebSocketPreview:
         try:
             image_data = Path(image_path).read_bytes()
             b64 = base64.b64encode(image_data).decode()
-            return self.broadcast("screenshot", {
-                "image": b64,
-                "format": "png",
-                "size": len(image_data),
-            })
+            return self.broadcast(
+                "screenshot",
+                {
+                    "image": b64,
+                    "format": "png",
+                    "size": len(image_data),
+                },
+            )
         except Exception as e:
             logger.warning(f"Failed to send screenshot: {e}")
             return 0

@@ -87,7 +87,9 @@ class TestPlaywrightBrowser:
                 browser.fill(first_num, "test text")
         except Exception as e:
             # Expected on pages with few inputs
-            assert "Fill failed" in str(e) or "ActionExecutionError" in str(type(e).__name__)
+            assert "Fill failed" in str(e) or "ActionExecutionError" in str(
+                type(e).__name__
+            )
         finally:
             browser.close()
 

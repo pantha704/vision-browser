@@ -66,7 +66,9 @@ class SessionManager:
             logger.debug(f"Could not save full storage state: {e}")
 
         session_file.write_text(json.dumps(session_data, indent=2))
-        logger.info(f"Session saved: {session_file} ({len(session_data['cookies'])} cookies)")
+        logger.info(
+            f"Session saved: {session_file} ({len(session_data['cookies'])} cookies)"
+        )
         return session_file
 
     def restore_session(self, context: BrowserContext, session_name: str) -> bool:
@@ -92,7 +94,9 @@ class SessionManager:
             cookies = session_data.get("cookies", [])
             if cookies:
                 context.add_cookies(cookies)
-                logger.info(f"Restored {len(cookies)} cookies from session '{session_name}'")
+                logger.info(
+                    f"Restored {len(cookies)} cookies from session '{session_name}'"
+                )
 
             # Restore storage state if available
             storage_state = session_data.get("storage_state")
@@ -117,19 +121,23 @@ class SessionManager:
         for session_file in self._session_dir.glob("*.json"):
             try:
                 data = json.loads(session_file.read_text())
-                sessions.append({
-                    "name": data.get("name", session_file.stem),
-                    "saved_at": data.get("saved_at", "unknown"),
-                    "cookie_count": len(data.get("cookies", [])),
-                    "path": str(session_file),
-                })
+                sessions.append(
+                    {
+                        "name": data.get("name", session_file.stem),
+                        "saved_at": data.get("saved_at", "unknown"),
+                        "cookie_count": len(data.get("cookies", [])),
+                        "path": str(session_file),
+                    }
+                )
             except Exception:
-                sessions.append({
-                    "name": session_file.stem,
-                    "saved_at": "unknown",
-                    "cookie_count": 0,
-                    "path": str(session_file),
-                })
+                sessions.append(
+                    {
+                        "name": session_file.stem,
+                        "saved_at": "unknown",
+                        "cookie_count": 0,
+                        "path": str(session_file),
+                    }
+                )
         return sorted(sessions, key=lambda s: s["saved_at"], reverse=True)
 
     def delete_session(self, session_name: str) -> bool:

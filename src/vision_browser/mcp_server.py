@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class ConnectionState(Enum):
     """MCP server connection state."""
+
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
     RECOVERING = "recovering"
@@ -49,7 +50,11 @@ SCREENSHOT_TOOL = MCPTool(
     input_schema={
         "type": "object",
         "properties": {
-            "full_page": {"type": "boolean", "description": "Capture full page including below-fold content", "default": False}
+            "full_page": {
+                "type": "boolean",
+                "description": "Capture full page including below-fold content",
+                "default": False,
+            }
         },
     },
 )
@@ -59,7 +64,12 @@ CLICK_TOOL = MCPTool(
     description="Click an element by badge number",
     input_schema={
         "type": "object",
-        "properties": {"element": {"type": "integer", "description": "Badge number of element to click"}},
+        "properties": {
+            "element": {
+                "type": "integer",
+                "description": "Badge number of element to click",
+            }
+        },
         "required": ["element"],
     },
 )
@@ -70,7 +80,10 @@ FILL_TOOL = MCPTool(
     input_schema={
         "type": "object",
         "properties": {
-            "element": {"type": "integer", "description": "Badge number of input element"},
+            "element": {
+                "type": "integer",
+                "description": "Badge number of input element",
+            },
             "text": {"type": "string", "description": "Text to fill"},
         },
         "required": ["element", "text"],
@@ -93,7 +106,10 @@ EXECUTE_TOOL = MCPTool(
     input_schema={
         "type": "object",
         "properties": {
-            "task": {"type": "string", "description": "Natural language description of what to do"}
+            "task": {
+                "type": "string",
+                "description": "Natural language description of what to do",
+            }
         },
         "required": ["task"],
     },
@@ -108,7 +124,15 @@ HEALTH_TOOL = MCPTool(
     },
 )
 
-ALL_TOOLS = [NAVIGATE_TOOL, SCREENSHOT_TOOL, CLICK_TOOL, FILL_TOOL, EXTRACT_TOOL, EXECUTE_TOOL, HEALTH_TOOL]
+ALL_TOOLS = [
+    NAVIGATE_TOOL,
+    SCREENSHOT_TOOL,
+    CLICK_TOOL,
+    FILL_TOOL,
+    EXTRACT_TOOL,
+    EXECUTE_TOOL,
+    HEALTH_TOOL,
+]
 
 
 class MCPServer:
@@ -121,7 +145,11 @@ class MCPServer:
     def __init__(self, orchestrator=None):
         self._orchestrator = orchestrator
         self._tools = list(ALL_TOOLS)
-        self._state = ConnectionState.DISCONNECTED if orchestrator is None else ConnectionState.CONNECTED
+        self._state = (
+            ConnectionState.DISCONNECTED
+            if orchestrator is None
+            else ConnectionState.CONNECTED
+        )
         self._consecutive_errors = 0
         self._start_time = time.monotonic()
 
@@ -231,8 +259,15 @@ class MCPServer:
     async def _handle_screenshot(self, args: dict) -> dict:
         self._require_orchestrator()
         path = "/tmp/vision-browser-mcp-screenshot.png"
-        result = self._orchestrator.browser.screenshot(path, full_page=args.get("full_page", False))
-        return {"success": True, "path": path, "url": result.get("url"), "title": result.get("title")}
+        result = self._orchestrator.browser.screenshot(
+            path, full_page=args.get("full_page", False)
+        )
+        return {
+            "success": True,
+            "path": path,
+            "url": result.get("url"),
+            "title": result.get("title"),
+        }
 
     async def _handle_click(self, args: dict) -> dict:
         self._require_orchestrator()
@@ -246,7 +281,9 @@ class MCPServer:
 
     async def _handle_extract(self, args: dict) -> dict:
         self._require_orchestrator()
-        text = self._orchestrator.browser._page.query_selector(args["selector"]).inner_text()
+        text = self._orchestrator.browser._page.query_selector(
+            args["selector"]
+        ).inner_text()
         return {"success": True, "text": text}
 
     async def _handle_execute(self, args: dict) -> dict:
@@ -258,7 +295,9 @@ class MCPServer:
     def _require_orchestrator(self) -> None:
         """Raise an error if no orchestrator is connected."""
         if self._orchestrator is None:
-            raise RuntimeError("No orchestrator connected. Start the server with a browser session.")
+            raise RuntimeError(
+                "No orchestrator connected. Start the server with a browser session."
+            )
 
 
 def get_mcp_resource() -> dict:

@@ -10,6 +10,7 @@ import pytest
 
 # ── API Key Fixtures ───────────────────────────────────────────────
 
+
 @pytest.fixture(autouse=True)
 def mock_api_keys():
     """Set mock API keys for all tests. Cleans up after each test."""
@@ -22,10 +23,12 @@ def mock_api_keys():
 
 # ── NIM HTTP Mock Fixtures ─────────────────────────────────────────
 
+
 @pytest.fixture
 def mock_nim_success(httpx_mock):
     """Mock NIM API success response."""
     from tests.mocks import nim_success_response
+
     httpx_mock.add_response(
         method="POST",
         url="https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/24e0c62b-f7d0-44ba-8012-012c2a1aaf31",
@@ -38,6 +41,7 @@ def mock_nim_success(httpx_mock):
 def mock_nim_malformed(httpx_mock):
     """Mock NIM API with malformed/prose response."""
     from tests.mocks import nim_prose_response
+
     httpx_mock.add_response(
         method="POST",
         url="https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/24e0c62b-f7d0-44ba-8012-012c2a1aaf31",
@@ -50,6 +54,7 @@ def mock_nim_malformed(httpx_mock):
 def mock_nim_empty(httpx_mock):
     """Mock NIM API with empty content response."""
     from tests.mocks import nim_empty_response
+
     httpx_mock.add_response(
         method="POST",
         url="https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/24e0c62b-f7d0-44ba-8012-012c2a1aaf31",
@@ -62,6 +67,7 @@ def mock_nim_empty(httpx_mock):
 def mock_nim_markdown(httpx_mock):
     """Mock NIM API with markdown-wrapped JSON response."""
     from tests.mocks import nim_markdown_response
+
     httpx_mock.add_response(
         method="POST",
         url="https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/24e0c62b-f7d0-44ba-8012-012c2a1aaf31",
@@ -74,6 +80,7 @@ def mock_nim_markdown(httpx_mock):
 def mock_nim_partial_json(httpx_mock):
     """Mock NIM API with partial/truncated JSON response."""
     from tests.mocks import nim_partial_json_response
+
     httpx_mock.add_response(
         method="POST",
         url="https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/24e0c62b-f7d0-44ba-8012-012c2a1aaf31",
@@ -84,10 +91,12 @@ def mock_nim_partial_json(httpx_mock):
 
 # ── Groq Mock Fixtures ─────────────────────────────────────────────
 
+
 @pytest.fixture
 def mock_groq_success():
     """Mock Groq client with successful JSON response."""
     from tests.mocks import groq_success_response
+
     mock_response = groq_success_response()
 
     mock_client = MagicMock()
@@ -101,6 +110,7 @@ def mock_groq_success():
 def mock_groq_tool_call():
     """Mock Groq client with tool call (function calling) response."""
     from tests.mocks import groq_tool_call_response
+
     mock_response = groq_tool_call_response()
 
     mock_client = MagicMock()
@@ -114,6 +124,7 @@ def mock_groq_tool_call():
 def mock_groq_empty():
     """Mock Groq client with empty response."""
     from tests.mocks import groq_empty_response
+
     mock_response = groq_empty_response()
 
     mock_client = MagicMock()
@@ -124,6 +135,7 @@ def mock_groq_empty():
 
 
 # ── Vision Client Factory ──────────────────────────────────────────
+
 
 @pytest.fixture
 def vision_client():

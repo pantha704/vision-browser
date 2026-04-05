@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 
-
 class TestTaskSummary:
     """Test CLI-03: Task summary report."""
 
@@ -86,6 +85,7 @@ class TestRichFallback:
 
         import io
         import sys
+
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:

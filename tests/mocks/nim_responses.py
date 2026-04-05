@@ -17,7 +17,7 @@ def nim_markdown_response(content: str | None = None) -> dict:
     """Return a NIM response with JSON wrapped in ```json``` markdown block."""
     if content is None:
         content = '{"actions": [], "done": false, "reasoning": "markdown wrapped"}'
-    wrapped = f'```json\n{content}\n```'
+    wrapped = f"```json\n{content}\n```"
     return {"choices": [{"message": {"content": wrapped}}]}
 
 
@@ -41,4 +41,6 @@ def nim_empty_response() -> dict:
 
 def nim_partial_json_response() -> dict:
     """Return a NIM response with truncated/partial JSON."""
-    return {"choices": [{"message": {"content": '{"actions": [{"action": "click", "elem'}}]}
+    return {
+        "choices": [{"message": {"content": '{"actions": [{"action": "click", "elem'}}]
+    }

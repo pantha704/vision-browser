@@ -93,11 +93,14 @@ class Orchestrator:
 
     def __init__(self, cfg: AppConfig):
         self.cfg = cfg
-        self.vision = VisionClient(cfg.vision, {
-            "retry_attempts": cfg.orchestrator.retry_attempts,
-            "retry_backoff_base": cfg.orchestrator.retry_backoff_base,
-            "rate_limit_delay": cfg.orchestrator.rate_limit_delay,
-        })
+        self.vision = VisionClient(
+            cfg.vision,
+            {
+                "retry_attempts": cfg.orchestrator.retry_attempts,
+                "retry_backoff_base": cfg.orchestrator.retry_backoff_base,
+                "rate_limit_delay": cfg.orchestrator.rate_limit_delay,
+            },
+        )
         self.browser = AgentBrowser(cfg.browser)
         self.desktop = DesktopController(cfg.desktop)
         self._shutdown_requested = False
@@ -106,6 +109,7 @@ class Orchestrator:
 
     def _register_signals(self) -> None:
         """Register signal handlers for graceful shutdown."""
+
         def _handler(signum: int, _frame: object) -> None:
             logger.info(f"Signal {signum} received, shutting down gracefully")
             self._shutdown_requested = True
@@ -113,9 +117,13 @@ class Orchestrator:
         signal.signal(signal.SIGINT, _handler)
         signal.signal(signal.SIGTERM, _handler)
 
-    def run(self, task: str, url: str | None = None, desktop_mode: bool = False) -> None:
+    def run(
+        self, task: str, url: str | None = None, desktop_mode: bool = False
+    ) -> None:
         """Execute the automation loop."""
-        console.print(Panel(f"[bold green]Task:[/bold green] {task}", title="Vision Browser"))
+        console.print(
+            Panel(f"[bold green]Task:[/bold green] {task}", title="Vision Browser")
+        )
 
         if self._shutdown_requested:
             console.print("[yellow]Shutdown requested before start, exiting[/yellow]")
@@ -152,7 +160,9 @@ class Orchestrator:
             try:
                 # 1. Screenshot with annotated badges
                 console.print("  📸 Capturing annotated screenshot...")
-                shot_result = self.browser.screenshot(str(SCREENSHOT_PATH), annotate=True)
+                shot_result = self.browser.screenshot(
+                    str(SCREENSHOT_PATH), annotate=True
+                )
                 element_refs: dict[int, str] = shot_result.get("refs", {})
                 element_legend: list[str] = shot_result.get("legend", [])
 
@@ -169,7 +179,9 @@ class Orchestrator:
                 last_url = url
 
                 if same_url_count >= 2:
-                    console.print(f"[yellow]  ⚠️ Stuck on same URL for {same_url_count} turns. Forcing new strategy.[/yellow]")
+                    console.print(
+                        f"[yellow]  ⚠️ Stuck on same URL for {same_url_count} turns. Forcing new strategy.[/yellow]"
+                    )
                     consecutive_failures = max(consecutive_failures, 2)
                 console.print(f"  📍 {url} — {title}")
 
@@ -212,9 +224,18 @@ class Orchestrator:
                                     try:
                                         # Extract query from task
                                         import re
-                                        query_match = re.search(r"['\"]([^'\"]+)['\"]", task)
-                                        query = query_match.group(1) if query_match else task[:50]
-                                        console.print(f"[yellow]  🔄 Auto-filling search with: {query}[/yellow]")
+
+                                        query_match = re.search(
+                                            r"['\"]([^'\"]+)['\"]", task
+                                        )
+                                        query = (
+                                            query_match.group(1)
+                                            if query_match
+                                            else task[:50]
+                                        )
+                                        console.print(
+                                            f"[yellow]  🔄 Auto-filling search with: {query}[/yellow]"
+                                        )
                                         self.browser.fill(ref, query)
                                         self.browser.press("Enter")
                                         consecutive_failures = 0
@@ -224,11 +245,15 @@ class Orchestrator:
                                         logger.debug(f"Auto-fill failed: {fe}")
 
                             if not fallback_worked:
-                                console.print("[yellow]  🔄 No combobox found for auto-fill.[/yellow]")
+                                console.print(
+                                    "[yellow]  🔄 No combobox found for auto-fill.[/yellow]"
+                                )
 
                         if not fallback_worked:
                             # Strategy 2: Click first link element by badge
-                            console.print("[yellow]  🔄 Semantic click failed. Falling back: clicking first link.[/yellow]")
+                            console.print(
+                                "[yellow]  🔄 Semantic click failed. Falling back: clicking first link.[/yellow]"
+                            )
                             for num, ref in sorted(element_refs.items()):
                                 try:
                                     self.browser.click(ref)
@@ -242,7 +267,9 @@ class Orchestrator:
                         # Limit to 1 action after failures to avoid DOM staleness
                         if consecutive_failures > 0:
                             valid_actions = valid_actions[:1]
-                        console.print(f"  ⚡ Executing {len(valid_actions)} action(s)...")
+                        console.print(
+                            f"  ⚡ Executing {len(valid_actions)} action(s)..."
+                        )
                         executed = self.browser.execute_batch(valid_actions)
                         console.print(f"  ✅ {executed} actions succeeded")
 
@@ -261,7 +288,9 @@ class Orchestrator:
                         console.print("\n[bold green]✅ Task complete![/bold green]")
                         break
                     else:
-                        console.print("[yellow]  ⚠️ Task not verified, continuing...[/yellow]")
+                        console.print(
+                            "[yellow]  ⚠️ Task not verified, continuing...[/yellow]"
+                        )
                         done = False  # Reset, keep looping
 
             except Exception as e:
@@ -270,9 +299,13 @@ class Orchestrator:
                 # Try to recover: check if browser is still alive
                 if not self._browser_alive():
                     if self.browser.cfg.cdp_url:
-                        console.print("[yellow]  ⚠️ Brave CDP connection lost. Please restart Brave with --remote-debugging-port=9222[/yellow]")
+                        console.print(
+                            "[yellow]  ⚠️ Brave CDP connection lost. Please restart Brave with --remote-debugging-port=9222[/yellow]"
+                        )
                         break
-                    console.print("[yellow]  🔄 Browser crashed, attempting recovery...[/yellow]")
+                    console.print(
+                        "[yellow]  🔄 Browser crashed, attempting recovery...[/yellow]"
+                    )
                     try:
                         self.browser.close()
                     except Exception:
@@ -353,7 +386,9 @@ class Orchestrator:
             return result
 
         # Model returned prose — retry with a strict re-prompt
-        console.print("  🔄 [yellow]Model returned prose, retrying with strict JSON prompt...[/yellow]")
+        console.print(
+            "  🔄 [yellow]Model returned prose, retrying with strict JSON prompt...[/yellow]"
+        )
         retry_prompt = (
             "Your previous response was not valid JSON. "
             "You MUST respond with ONLY a JSON object. "
@@ -400,9 +435,7 @@ class Orchestrator:
 
         return valid, skipped
 
-    def _verify_completion(
-        self, task: str, turn: int, max_turns: int
-    ) -> bool:
+    def _verify_completion(self, task: str, turn: int, max_turns: int) -> bool:
         """Take one more screenshot and verify the task is actually done."""
         try:
             shot = self.browser.screenshot(str(SCREENSHOT_PATH), annotate=True)
@@ -421,7 +454,9 @@ class Orchestrator:
             )
             result = self.vision.analyze(str(SCREENSHOT_PATH), verify_prompt)
             is_complete = result.get("complete", False)
-            logger.info(f"Verification: complete={is_complete}, reason={result.get('reasoning')}")
+            logger.info(
+                f"Verification: complete={is_complete}, reason={result.get('reasoning')}"
+            )
             return bool(is_complete)
         except Exception as e:
             logger.warning(f"Verification failed, accepting completion: {e}")

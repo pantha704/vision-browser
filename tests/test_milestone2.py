@@ -30,6 +30,7 @@ def _run_async(coro):
 
 # ── MCP Server Tests ───────────────────────────────────────────────
 
+
 class TestMCPTools:
     def test_navigate_tool_schema(self):
         """Navigate tool has correct schema."""
@@ -81,7 +82,9 @@ class TestMCPServer:
     def test_call_tool_no_orchestrator(self):
         """Tool call without orchestrator returns error."""
         server = MCPServer()
-        result = _run_async(server.call_tool("navigate", {"url": "https://example.com"}))
+        result = _run_async(
+            server.call_tool("navigate", {"url": "https://example.com"})
+        )
         assert "error" in result
 
     def test_call_navigate(self):
@@ -91,7 +94,9 @@ class TestMCPServer:
         mock_orchestrator.browser.open.return_value = None
         server._orchestrator = mock_orchestrator
 
-        result = _run_async(server.call_tool("navigate", {"url": "https://example.com"}))
+        result = _run_async(
+            server.call_tool("navigate", {"url": "https://example.com"})
+        )
         assert result["success"] is True
         mock_orchestrator.browser.open.assert_called_once_with("https://example.com")
 
@@ -126,6 +131,7 @@ class TestMCPServer:
 
 # ── WebSocket Preview Tests ────────────────────────────────────────
 
+
 class TestWebSocketPreview:
     def test_init_defaults(self):
         """Default port and interval."""
@@ -154,8 +160,10 @@ class TestWebSocketPreview:
     def test_connect_disconnect(self):
         """Connect and disconnect clients."""
         preview = WebSocketPreview()
+
         def _noop(msg):  # noqa: ARG001
             pass
+
         preview.connect(_noop)
         assert preview.client_count == 1
         preview.disconnect(_noop)
@@ -195,6 +203,7 @@ class TestWebSocketPreview:
 
 # ── Multi-Browser Tests ────────────────────────────────────────────
 
+
 class TestMultiBrowserManager:
     def test_invalid_engine(self):
         """Invalid engine raises error."""
@@ -224,6 +233,7 @@ class TestMultiBrowserManager:
 
 
 # ── Session Pool Tests ─────────────────────────────────────────────
+
 
 class TestSessionPool:
     def test_init_default(self):

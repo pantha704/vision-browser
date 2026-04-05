@@ -18,7 +18,9 @@ class TestDiffScreenshotConfig:
         assert cfg.orchestrator.diff_max_retain == 10
 
     def test_diff_enabled_via_auto_diff(self):
-        cfg = AppConfig.model_validate({"orchestrator": {"auto_diff_screenshots": True}})
+        cfg = AppConfig.model_validate(
+            {"orchestrator": {"auto_diff_screenshots": True}}
+        )
         assert cfg.orchestrator.auto_diff_screenshots is True
 
     def test_diff_enabled_via_diff_mode(self):
@@ -53,7 +55,9 @@ class TestDiffScreenshotIntegration:
         from unittest.mock import patch
         from vision_browser.fast_orchestrator import FastOrchestrator
 
-        cfg = AppConfig.model_validate({"orchestrator": {"auto_diff_screenshots": True}})
+        cfg = AppConfig.model_validate(
+            {"orchestrator": {"auto_diff_screenshots": True}}
+        )
         with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"):
             orchestrator = FastOrchestrator(cfg)
         assert orchestrator.diff_screenshot is not None
@@ -75,9 +79,9 @@ class TestDiffScreenshotIntegration:
         from unittest.mock import patch
         from vision_browser.fast_orchestrator import FastOrchestrator
 
-        cfg = AppConfig.model_validate({
-            "orchestrator": {"auto_diff_screenshots": True, "diff_threshold": 0.05}
-        })
+        cfg = AppConfig.model_validate(
+            {"orchestrator": {"auto_diff_screenshots": True, "diff_threshold": 0.05}}
+        )
         with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"):
             orchestrator = FastOrchestrator(cfg)
         assert orchestrator.diff_screenshot.threshold == 0.05
@@ -95,7 +99,9 @@ class TestDiffLogAndCleanup:
         with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"):
             orchestrator = FastOrchestrator(cfg)
 
-        orchestrator._log_diff(turn=1, action="pre-analysis", changed=True, path="/tmp/test.png")
+        orchestrator._log_diff(
+            turn=1, action="pre-analysis", changed=True, path="/tmp/test.png"
+        )
         assert len(orchestrator._diff_log) == 1
         entry = orchestrator._diff_log[0]
         assert entry["turn"] == 1
@@ -109,15 +115,17 @@ class TestDiffLogAndCleanup:
         from unittest.mock import patch
         from vision_browser.fast_orchestrator import FastOrchestrator
 
-        cfg = AppConfig.model_validate({
-            "orchestrator": {"auto_diff_screenshots": True, "diff_max_retain": 3}
-        })
+        cfg = AppConfig.model_validate(
+            {"orchestrator": {"auto_diff_screenshots": True, "diff_max_retain": 3}}
+        )
         with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"):
             orchestrator = FastOrchestrator(cfg)
 
         # Add 5 entries
         for i in range(5):
-            orchestrator._log_diff(turn=i, action="test", changed=True, path=f"/tmp/{i}.png")
+            orchestrator._log_diff(
+                turn=i, action="test", changed=True, path=f"/tmp/{i}.png"
+            )
 
         assert len(orchestrator._diff_log) == 5
         orchestrator._cleanup_diffs()
@@ -131,14 +139,16 @@ class TestDiffLogAndCleanup:
         from unittest.mock import patch
         from vision_browser.fast_orchestrator import FastOrchestrator
 
-        cfg = AppConfig.model_validate({
-            "orchestrator": {"auto_diff_screenshots": True, "diff_max_retain": 10}
-        })
+        cfg = AppConfig.model_validate(
+            {"orchestrator": {"auto_diff_screenshots": True, "diff_max_retain": 10}}
+        )
         with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"):
             orchestrator = FastOrchestrator(cfg)
 
         for i in range(3):
-            orchestrator._log_diff(turn=i, action="test", changed=True, path=f"/tmp/{i}.png")
+            orchestrator._log_diff(
+                turn=i, action="test", changed=True, path=f"/tmp/{i}.png"
+            )
 
         orchestrator._cleanup_diffs()
         assert len(orchestrator._diff_log) == 3
@@ -152,7 +162,9 @@ class TestDiffLogAndCleanup:
         with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"):
             orchestrator = FastOrchestrator(cfg)
 
-        orchestrator._log_diff(turn=1, action="test", changed=True, path="/tmp/test.png")
+        orchestrator._log_diff(
+            turn=1, action="test", changed=True, path="/tmp/test.png"
+        )
         report = orchestrator.get_diff_report()
         assert report is not orchestrator._diff_log  # Should be a copy
         assert len(report) == 1

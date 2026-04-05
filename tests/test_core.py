@@ -8,7 +8,13 @@ import os
 import pytest
 
 from vision_browser.browser import _validate_url, _element_to_ref
-from vision_browser.config import AppConfig, BrowserConfig, DesktopConfig, OrchestratorConfig, VisionConfig
+from vision_browser.config import (
+    AppConfig,
+    BrowserConfig,
+    DesktopConfig,
+    OrchestratorConfig,
+    VisionConfig,
+)
 from vision_browser.exceptions import (
     ActionExecutionError,
     ConfigError,
@@ -17,6 +23,7 @@ from vision_browser.vision import VisionClient
 
 
 # ── JSON Extraction ────────────────────────────────────────────────
+
 
 class TestExtractJson:
     def test_direct_json(self):
@@ -35,7 +42,16 @@ class TestExtractJson:
         assert result["actions"][0]["action"] == "fill"
 
     def test_deeply_nested_json(self):
-        data = {"actions": [{"action": "click", "element": 1, "meta": {"x": 10, "y": 20, "z": {"a": 1}}}], "done": False}
+        data = {
+            "actions": [
+                {
+                    "action": "click",
+                    "element": 1,
+                    "meta": {"x": 10, "y": 20, "z": {"a": 1}},
+                }
+            ],
+            "done": False,
+        }
         text = json.dumps(data)
         result = VisionClient._extract_json(text)
         assert result["actions"][0]["meta"]["z"]["a"] == 1
@@ -59,6 +75,7 @@ class TestExtractJson:
 
 
 # ── Config Validation ──────────────────────────────────────────────
+
 
 class TestConfig:
     def test_defaults(self):
@@ -118,9 +135,13 @@ class TestConfig:
 
     def test_orchestrator_custom(self):
         cfg = OrchestratorConfig(
-            max_turns=50, batch_actions=False, diff_mode=True,
-            max_prompt_elements=50, retry_attempts=5,
-            retry_backoff_base=2.0, rate_limit_delay=1.0,
+            max_turns=50,
+            batch_actions=False,
+            diff_mode=True,
+            max_prompt_elements=50,
+            retry_attempts=5,
+            retry_backoff_base=2.0,
+            rate_limit_delay=1.0,
         )
         assert cfg.max_turns == 50
         assert cfg.batch_actions is False
@@ -147,6 +168,7 @@ class TestConfig:
 
 # ── URL Validation ─────────────────────────────────────────────────
 
+
 class TestUrlValidation:
     def test_valid_http(self):
         _validate_url("http://example.com")
@@ -168,6 +190,7 @@ class TestUrlValidation:
 
 
 # ── Element Ref Helpers ────────────────────────────────────────────
+
 
 class TestElementRef:
     def test_int_to_ref(self):

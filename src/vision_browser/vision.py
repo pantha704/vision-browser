@@ -75,8 +75,12 @@ class VisionClient:
             except ModelResponseError:
                 # Model returned invalid JSON -- retry with stricter prompt
                 if attempt < self._max_retries:
-                    stricter_prompt = self._build_stricter_prompt(prompt, schema, attempt)
-                    logger.warning(f"JSON parse failed on attempt {attempt}, retrying with stricter prompt")
+                    stricter_prompt = self._build_stricter_prompt(
+                        prompt, schema, attempt
+                    )
+                    logger.warning(
+                        f"JSON parse failed on attempt {attempt}, retrying with stricter prompt"
+                    )
                     try:
                         return self._nim_analyze(image_path, stricter_prompt, schema)
                     except ModelResponseError:
@@ -114,7 +118,9 @@ class VisionClient:
                 time.sleep(backoff)
 
         # Should never reach here
-        raise VisionAPIError("Unexpected: analyze loop exited without returning or raising")
+        raise VisionAPIError(
+            "Unexpected: analyze loop exited without returning or raising"
+        )
 
     def _apply_rate_limit(self) -> None:
         """Enforce minimum delay between requests."""
@@ -133,7 +139,9 @@ class VisionClient:
             self._groq = Groq(api_key=api_key)
         return self._groq
 
-    def _groq_analyze(self, image_path: str, prompt: str, schema: dict | None = None) -> dict:
+    def _groq_analyze(
+        self, image_path: str, prompt: str, schema: dict | None = None
+    ) -> dict:
         """Call Groq vision API with optional JSON schema enforcement."""
         logger.debug("Calling Groq vision API")
         client = self._get_groq()
@@ -159,19 +167,24 @@ class VisionClient:
                 "max_tokens": self.cfg.groq_max_tokens,
                 "temperature": 0.1,
             }
-            
+
             # Use function calling if schema provided, otherwise json_object
             if schema:
-                kwargs["tools"] = [{
-                    "type": "function",
-                    "function": {
-                        "name": "browser_action",
-                        "description": "Execute browser automation actions",
-                        "parameters": schema,
-                        "strict": True,
+                kwargs["tools"] = [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "browser_action",
+                            "description": "Execute browser automation actions",
+                            "parameters": schema,
+                            "strict": True,
+                        },
                     }
-                }]
-                kwargs["tool_choice"] = {"type": "function", "function": {"name": "browser_action"}}
+                ]
+                kwargs["tool_choice"] = {
+                    "type": "function",
+                    "function": {"name": "browser_action"},
+                }
             else:
                 kwargs["response_format"] = {"type": "json_object"}
 
@@ -187,7 +200,9 @@ class VisionClient:
             try:
                 return json.loads(tool_call.function.arguments)
             except json.JSONDecodeError as e:
-                raise VisionAPIError(f"Groq function arguments not valid JSON: {e}") from e
+                raise VisionAPIError(
+                    f"Groq function arguments not valid JSON: {e}"
+                ) from e
 
         # Handle json_object response
         text = response.choices[0].message.content
@@ -195,7 +210,9 @@ class VisionClient:
             raise VisionAPIError("Groq returned empty response")
         return self._validate_json_response(text.strip(), schema)
 
-    def _nim_analyze(self, image_path: str, prompt: str, schema: dict | None = None) -> dict:
+    def _nim_analyze(
+        self, image_path: str, prompt: str, schema: dict | None = None
+    ) -> dict:
         """Call NVIDIA NIM vision API via NVCF with optional JSON schema."""
         logger.debug("Calling NIM vision API")
         image_b64 = self._encode_image(image_path)
@@ -305,9 +322,7 @@ class VisionClient:
         logger.warning("Could not extract JSON from model response. Wrapping text.")
         return {"actions": [], "done": False, "reasoning": text.strip()}
 
-    def _validate_json_response(
-        self, text: str, schema: dict | None = None
-    ) -> dict:
+    def _validate_json_response(self, text: str, schema: dict | None = None) -> dict:
         """Validate that model text can be extracted as valid JSON.
 
         Args:
@@ -359,7 +374,9 @@ class VisionClient:
         return result
 
     @staticmethod
-    def _build_stricter_prompt(original_prompt: str, schema: dict | None, attempt: int) -> str:
+    def _build_stricter_prompt(
+        original_prompt: str, schema: dict | None, attempt: int
+    ) -> str:
         """Build a progressively stricter prompt for JSON retry.
 
         Args:

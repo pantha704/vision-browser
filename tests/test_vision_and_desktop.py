@@ -34,6 +34,7 @@ NIM_URL = "https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/24e0c62b-f7d0-44b
 
 # ── VisionClient Init Tests ────────────────────────────────────────
 
+
 class TestVisionClientInit:
     def test_init_with_defaults(self):
         cfg = VisionConfig()
@@ -56,6 +57,7 @@ class TestVisionClientInit:
 
 
 # ── VisionClient NIM Tests (httpx_mock) ────────────────────────────
+
 
 class TestVisionClientNIM:
     def test_nim_analyze_success(self, httpx_mock: pytest_httpx.HTTPXMock):
@@ -101,8 +103,10 @@ class TestVisionClientNIM:
             json={"error": "rate limited"},
         )
         # Groq fallback also rate limited
-        with patch.object(client, "_encode_image", return_value="fake_b64"), \
-             patch.object(client, "_get_groq") as mock_groq:
+        with (
+            patch.object(client, "_encode_image", return_value="fake_b64"),
+            patch.object(client, "_get_groq") as mock_groq,
+        ):
             mock_groq.side_effect = VisionAPIError("groq rate limited")
             with pytest.raises(VisionAPIError):
                 client.analyze("/tmp/test.png", "test prompt")
@@ -197,6 +201,7 @@ class TestVisionClientNIM:
 
 # ── VisionClient Groq Tests (mock fixtures) ────────────────────────
 
+
 class TestVisionClientGroq:
     def test_groq_analyze_success(self, mock_groq_success):
         """Test successful Groq API call."""
@@ -211,7 +216,9 @@ class TestVisionClientGroq:
         client = VisionClient(VisionConfig())
 
         with patch.object(client, "_encode_image", return_value="fake_b64"):
-            result = client._groq_analyze("/tmp/test.png", "test prompt", schema={"type": "object"})
+            result = client._groq_analyze(
+                "/tmp/test.png", "test prompt", schema={"type": "object"}
+            )
             assert result["done"] is True
 
     def test_groq_analyze_empty_response(self, mock_groq_empty):
@@ -229,8 +236,10 @@ class TestVisionClientGroq:
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("429 rate limited")
 
-        with patch.object(client, "_get_groq", return_value=mock_client), \
-             patch.object(client, "_encode_image", return_value="fake_b64"):
+        with (
+            patch.object(client, "_get_groq", return_value=mock_client),
+            patch.object(client, "_encode_image", return_value="fake_b64"),
+        ):
             with pytest.raises(VisionAPIError):
                 client._groq_analyze("/tmp/test.png", "test prompt")
 
@@ -246,6 +255,7 @@ class TestVisionClientGroq:
 
 
 # ── Malformed Response Tests (NEW) ─────────────────────────────────
+
 
 class TestMalformedResponses:
     def test_nim_prose_response_raises(self, httpx_mock: pytest_httpx.HTTPXMock):
@@ -317,7 +327,9 @@ class TestMalformedResponses:
         )
         # Set up Groq to also fail
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = VisionAPIError("groq also rate limited")
+        mock_client.chat.completions.create.side_effect = VisionAPIError(
+            "groq also rate limited"
+        )
         client._groq = mock_client
 
         with patch.object(client, "_encode_image", return_value="fake_b64"):
@@ -345,6 +357,7 @@ class TestMalformedResponses:
 
 
 # ── VisionClient Retry Tests ───────────────────────────────────────
+
 
 class TestVisionClientRetry:
     def test_analyze_retry_success(self, httpx_mock: pytest_httpx.HTTPXMock):
@@ -381,7 +394,9 @@ class TestVisionClientRetry:
 
         # Set up Groq to also fail
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = VisionAPIError("groq also fails")
+        mock_client.chat.completions.create.side_effect = VisionAPIError(
+            "groq also fails"
+        )
         client._groq = mock_client
 
         with patch.object(client, "_encode_image", return_value="fake_b64"):
@@ -390,6 +405,7 @@ class TestVisionClientRetry:
 
 
 # ── VisionClient Rate Limit Tests ──────────────────────────────────
+
 
 class TestVisionClientRateLimit:
     def test_rate_limit_enforced(self, httpx_mock: pytest_httpx.HTTPXMock):
@@ -415,8 +431,10 @@ class TestVisionClientRateLimit:
         mock_client.chat.completions.create.side_effect = VisionAPIError("groq fail")
         client._groq = mock_client
 
-        with patch.object(VisionClient, "_encode_image", return_value="fake_b64"), \
-             patch("vision_browser.vision.time.sleep") as mock_sleep:
+        with (
+            patch.object(VisionClient, "_encode_image", return_value="fake_b64"),
+            patch("vision_browser.vision.time.sleep") as mock_sleep,
+        ):
             # First call
             client.analyze("/tmp/test.png", "test prompt")
             # Reset sleep call count
@@ -424,17 +442,23 @@ class TestVisionClientRateLimit:
             # Second call - should trigger rate limit
             client.analyze("/tmp/test.png", "test prompt")
             # Verify sleep was called
-            assert mock_sleep.called, "time.sleep should have been called for rate limiting"
+            assert mock_sleep.called, (
+                "time.sleep should have been called for rate limiting"
+            )
             sleep_calls = [c[0][0] for c in mock_sleep.call_args_list]
-            assert any(s >= 0.03 for s in sleep_calls), f"Expected sleep >= 0.03s, got: {sleep_calls}"
+            assert any(s >= 0.03 for s in sleep_calls), (
+                f"Expected sleep >= 0.03s, got: {sleep_calls}"
+            )
 
 
 # ── VisionClient Encode Tests ──────────────────────────────────────
+
 
 class TestVisionClientEncode:
     def test_encode_image(self, tmp_path):
         """Test image encoding."""
         import base64
+
         test_file = tmp_path / "test.png"
         test_file.write_bytes(b"fake_image_data")
 
@@ -444,6 +468,7 @@ class TestVisionClientEncode:
 
 
 # ── DesktopController Tests ────────────────────────────────────────
+
 
 class TestDesktopControllerInit:
     def test_init_with_defaults(self):

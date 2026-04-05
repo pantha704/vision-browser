@@ -20,7 +20,9 @@ class TestModelResponseError:
 
     def test_with_raw_response_and_schema(self):
         schema = {"type": "object", "properties": {"actions": {"type": "array"}}}
-        err = ModelResponseError("parse failed", raw_response="not json", expected_schema=schema)
+        err = ModelResponseError(
+            "parse failed", raw_response="not json", expected_schema=schema
+        )
         assert err.raw_response == "not json"
         assert err.expected_schema == schema
 
@@ -39,7 +41,9 @@ class TestValidateJSONResponse:
 
     def test_valid_json_passes(self):
         client = VisionClient.__new__(VisionClient)
-        result = client._validate_json_response('{"actions": [], "done": true, "reasoning": "ok"}')
+        result = client._validate_json_response(
+            '{"actions": [], "done": true, "reasoning": "ok"}'
+        )
         assert result == {"actions": [], "done": True, "reasoning": "ok"}
 
     def test_markdown_wrapped_json_passes(self):

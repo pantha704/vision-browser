@@ -17,6 +17,7 @@ DEFAULT_MAX_SESSIONS = 5
 @dataclass
 class BrowserSession:
     """Represents a single browser session."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     browser: Browser | None = None
     context: BrowserContext | None = None

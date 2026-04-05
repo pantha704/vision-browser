@@ -36,7 +36,9 @@ class MultiBrowserManager:
             engine: Browser engine to use (chromium, firefox, webkit).
         """
         if engine not in VALID_ENGINES:
-            raise ValueError(f"Invalid engine: {engine}. Must be one of {VALID_ENGINES}")
+            raise ValueError(
+                f"Invalid engine: {engine}. Must be one of {VALID_ENGINES}"
+            )
         self.engine = engine
         self._playwright = None
         self._browser: Browser | None = None
@@ -75,7 +77,9 @@ class MultiBrowserManager:
             cdp_url: Chrome DevTools Protocol URL.
         """
         if self.engine != BROWSER_CHROMIUM:
-            raise ValueError(f"CDP connection only supported for Chromium, not {self.engine}")
+            raise ValueError(
+                f"CDP connection only supported for Chromium, not {self.engine}"
+            )
 
         self._playwright = sync_playwright().start()
         try:
@@ -83,7 +87,11 @@ class MultiBrowserManager:
             contexts = self._browser.contexts
             if contexts:
                 self._context = contexts[0]
-                self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
+                self._page = (
+                    self._context.pages[0]
+                    if self._context.pages
+                    else self._context.new_page()
+                )
             else:
                 self._context = self._browser.new_context()
                 self._page = self._context.new_page()

@@ -28,6 +28,7 @@ class TestHealthTool:
     def test_health_returns_ok_when_connected(self):
         """Health check returns 'ok' when orchestrator is connected."""
         from unittest.mock import MagicMock
+
         server = MCPServer(orchestrator=MagicMock())
         result = _run_async(server.call_tool("health", {}))
         assert result["status"] == "ok"
@@ -47,6 +48,7 @@ class TestHealthTool:
     def test_health_lists_all_other_tools(self):
         """Health tool lists all other tools (excluding itself)."""
         from unittest.mock import MagicMock
+
         server = MCPServer(orchestrator=MagicMock())
         result = _run_async(server.call_tool("health", {}))
         tools = result["tools_available"]
@@ -65,7 +67,9 @@ class TestErrorRecovery:
     def test_tool_error_returns_structured_error(self):
         """When a tool raises an exception, call_tool returns structured error."""
         server = MCPServer()
-        result = _run_async(server.call_tool("navigate", {"url": "https://example.com"}))
+        result = _run_async(
+            server.call_tool("navigate", {"url": "https://example.com"})
+        )
         assert result["success"] is False
         assert "error" in result
         assert "error_type" in result
@@ -79,7 +83,9 @@ class TestErrorRecovery:
         server = MCPServer(orchestrator=MagicMock())
         server._orchestrator.browser.open.side_effect = RateLimitError("rate limited")
 
-        result = _run_async(server.call_tool("navigate", {"url": "https://example.com"}))
+        result = _run_async(
+            server.call_tool("navigate", {"url": "https://example.com"})
+        )
         assert result["success"] is False
         assert result["retry_after"] is not None
         assert result["retry_after"] > 0
@@ -92,7 +98,9 @@ class TestErrorRecovery:
         server = MCPServer(orchestrator=MagicMock())
         server._orchestrator.browser.open.side_effect = VisionAPIError("model error")
 
-        result = _run_async(server.call_tool("navigate", {"url": "https://example.com"}))
+        result = _run_async(
+            server.call_tool("navigate", {"url": "https://example.com"})
+        )
         assert result["success"] is False
         assert result["retry_after"] == 3
 
@@ -104,7 +112,9 @@ class TestErrorRecovery:
         server = MCPServer(orchestrator=MagicMock())
         server._orchestrator.browser.open.side_effect = BrowserError("browser crashed")
 
-        result = _run_async(server.call_tool("navigate", {"url": "https://example.com"}))
+        result = _run_async(
+            server.call_tool("navigate", {"url": "https://example.com"})
+        )
         assert result["success"] is False
         assert "browser" in result["suggestion"].lower()
 
@@ -115,6 +125,7 @@ class TestConnectionState:
     def test_initial_state_connected(self):
         """Server with orchestrator starts in CONNECTED state."""
         from unittest.mock import MagicMock
+
         server = MCPServer(orchestrator=MagicMock())
         assert server._state == ConnectionState.CONNECTED
 
@@ -139,6 +150,7 @@ class TestConnectionState:
     def test_state_resets_on_success(self):
         """Success after errors resets to CONNECTED."""
         from unittest.mock import MagicMock
+
         server = MCPServer()
         # Cause 2 errors
         _run_async(server.call_tool("navigate", {"url": "https://example.com"}))
@@ -158,15 +170,19 @@ class TestBackwardCompatibility:
     def test_navigate_success_shape(self):
         """Navigate tool returns same shape as before."""
         from unittest.mock import MagicMock
+
         server = MCPServer(orchestrator=MagicMock())
         server._orchestrator.browser.open.return_value = None
-        result = _run_async(server.call_tool("navigate", {"url": "https://example.com"}))
+        result = _run_async(
+            server.call_tool("navigate", {"url": "https://example.com"})
+        )
         assert result["success"] is True
         assert "url" in result
 
     def test_click_success_shape(self):
         """Click tool returns same shape as before."""
         from unittest.mock import MagicMock
+
         server = MCPServer(orchestrator=MagicMock())
         server._orchestrator.browser.click.return_value = None
         result = _run_async(server.call_tool("click", {"element": 5}))
@@ -176,6 +192,7 @@ class TestBackwardCompatibility:
     def test_fill_success_shape(self):
         """Fill tool returns same shape as before."""
         from unittest.mock import MagicMock
+
         server = MCPServer(orchestrator=MagicMock())
         server._orchestrator.browser.fill.return_value = None
         result = _run_async(server.call_tool("fill", {"element": 3, "text": "hello"}))

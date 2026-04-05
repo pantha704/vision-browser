@@ -6,7 +6,11 @@ import time
 
 import pytest
 
-from vision_browser.circuit_breaker import CircuitBreaker, CircuitOpenError, CircuitState
+from vision_browser.circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+)
 
 
 class TestCircuitBreakerBasic:
@@ -69,7 +73,9 @@ class TestCircuitBreakerRecovery:
         assert cb.state == CircuitState.HALF_OPEN  # Needs 2 successes to close
 
     def test_closes_after_success_threshold(self, monkeypatch):
-        cb = CircuitBreaker(name="test", failure_threshold=2, timeout=5.0, success_threshold=2)
+        cb = CircuitBreaker(
+            name="test", failure_threshold=2, timeout=5.0, success_threshold=2
+        )
         # Open the circuit
         for _ in range(2):
             with pytest.raises(ValueError):

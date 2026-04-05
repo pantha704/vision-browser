@@ -37,7 +37,7 @@ class TestDiffScreenshotSkipOptimization:
         """Different screenshot files should be flagged as changed."""
         diff = DifferentialScreenshot(threshold=0.01)
         fake_image_1 = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-        fake_image_2 = b"\x89PNG\r\n\x1a\n" + b"\xFF" * 100
+        fake_image_2 = b"\x89PNG\r\n\x1a\n" + b"\xff" * 100
 
         path_1 = tmp_path / "first.png"
         path_1.write_bytes(fake_image_1)

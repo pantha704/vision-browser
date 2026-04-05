@@ -23,6 +23,7 @@ class VisionConfig(BaseModel):
         key = os.environ.get("NVIDIA_API_KEY", "")
         if not key:
             from vision_browser.exceptions import ConfigError
+
             raise ConfigError(
                 "NVIDIA_API_KEY not set. Export it: export NVIDIA_API_KEY='nvapi-...'"
             )
@@ -68,8 +69,12 @@ class OrchestratorConfig(BaseModel):
     batch_actions: bool = True
     diff_mode: bool = False  # Alias for auto_diff_screenshots
     auto_diff_screenshots: bool = False  # Enable differential screenshot capture
-    diff_threshold: float = Field(default=0.01, ge=0.0, le=1.0)  # Pixel diff ratio threshold
-    diff_max_retain: int = Field(default=10, ge=1, le=100)  # Max diffs to keep per session
+    diff_threshold: float = Field(
+        default=0.01, ge=0.0, le=1.0
+    )  # Pixel diff ratio threshold
+    diff_max_retain: int = Field(
+        default=10, ge=1, le=100
+    )  # Max diffs to keep per session
     max_prompt_elements: int = Field(default=30, ge=5, le=100)
     retry_attempts: int = Field(default=3, ge=1, le=10)
     retry_backoff_base: float = Field(default=1.0, ge=0.1, le=10.0)
@@ -97,11 +102,13 @@ class AppConfig(BaseModel):
         config_paths: list[Path] = []
         if path:
             config_paths.append(Path(path))
-        config_paths.extend([
-            Path("config.yaml"),
-            Path(__file__).parent.parent.parent / "config.yaml",
-            Path.home() / ".config" / "vision-browser" / "config.yaml",
-        ])
+        config_paths.extend(
+            [
+                Path("config.yaml"),
+                Path(__file__).parent.parent.parent / "config.yaml",
+                Path.home() / ".config" / "vision-browser" / "config.yaml",
+            ]
+        )
 
         data: dict = {}
         for p in config_paths:

@@ -75,7 +75,9 @@ class DifferentialScreenshot:
             if current.size != previous.size:
                 # Different sizes -- entire screenshot changed
                 self._previous_screenshot = current.tobytes()
-                return [{"x": 0, "y": 0, "width": current.width, "height": current.height}]
+                return [
+                    {"x": 0, "y": 0, "width": current.width, "height": current.height}
+                ]
 
             # Pixel-level comparison
             diff = Image.new("RGB", current.size)
@@ -105,18 +107,22 @@ class DifferentialScreenshot:
             # Bounding box of all changed pixels
             xs = [p[0] for p in changed_pixels]
             ys = [p[1] for p in changed_pixels]
-            changed_regions = [{
-                "x": min(xs),
-                "y": min(ys),
-                "width": max(xs) - min(xs) + 1,
-                "height": max(ys) - min(ys) + 1,
-            }]
+            changed_regions = [
+                {
+                    "x": min(xs),
+                    "y": min(ys),
+                    "width": max(xs) - min(xs) + 1,
+                    "height": max(ys) - min(ys) + 1,
+                }
+            ]
 
             self._previous_screenshot = current.tobytes()
             return changed_regions
 
         except ImportError:
-            logger.warning("PIL not installed -- falling back to full screenshot comparison")
+            logger.warning(
+                "PIL not installed -- falling back to full screenshot comparison"
+            )
             return self._fallback_diff(current_path)
         except Exception as e:
             logger.warning(f"Differential screenshot failed: {e}")
@@ -137,6 +143,7 @@ class DifferentialScreenshot:
         # Can't identify regions without PIL -- return full image
         try:
             from PIL import Image
+
             img = Image.open(current_path)
             return [{"x": 0, "y": 0, "width": img.width, "height": img.height}]
         except ImportError:
@@ -177,12 +184,14 @@ class DifferentialScreenshot:
             diff_img = Image.new("RGB", current.size, (0, 0, 0))
 
             for region in regions:
-                crop = current.crop((
-                    region["x"],
-                    region["y"],
-                    region["x"] + region["width"],
-                    region["y"] + region["height"],
-                ))
+                crop = current.crop(
+                    (
+                        region["x"],
+                        region["y"],
+                        region["x"] + region["width"],
+                        region["y"] + region["height"],
+                    )
+                )
                 diff_img.paste(crop, (region["x"], region["y"]))
 
             diff_img.save(output_path)

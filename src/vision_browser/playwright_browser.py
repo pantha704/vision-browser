@@ -24,11 +24,29 @@ from vision_browser.session import SessionManager
 logger = logging.getLogger(__name__)
 
 # Allowed keyboard keys
-_ALLOWED_KEYS = frozenset({
-    "Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowLeft", "ArrowRight",
-    "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", " ",
-    "Control+a", "Control+c", "Control+v", "Control+x", "Control+z",
-})
+_ALLOWED_KEYS = frozenset(
+    {
+        "Enter",
+        "Tab",
+        "Escape",
+        "Backspace",
+        "Delete",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        " ",
+        "Control+a",
+        "Control+c",
+        "Control+v",
+        "Control+x",
+        "Control+z",
+    }
+)
 
 # Navigation timeouts
 _NAV_TIMEOUT = 60_000
@@ -56,7 +74,7 @@ class PlaywrightBrowser:
     def _connect(self) -> None:
         """Connect to browser via CDP or launch new instance."""
         self._playwright = sync_playwright().start()
-        
+
         if self.cfg.cdp_url:
             # Connect to existing browser (e.g., Brave with --remote-debugging-port)
             try:
@@ -64,8 +82,10 @@ class PlaywrightBrowser:
                     self.cfg.cdp_url,
                     timeout=self.cfg.timeout_ms,
                 )
-                logger.info(f"Connected to existing browser via CDP: {self.cfg.cdp_url}")
-                
+                logger.info(
+                    f"Connected to existing browser via CDP: {self.cfg.cdp_url}"
+                )
+
                 # Use first context and page
                 contexts = self._browser.contexts
                 if contexts:
@@ -78,9 +98,11 @@ class PlaywrightBrowser:
                 else:
                     self._context = self._browser.new_context()
                     self._page = self._context.new_page()
-                    
+
             except Exception as e:
-                raise BrowserError(f"Failed to connect to CDP at {self.cfg.cdp_url}: {e}") from e
+                raise BrowserError(
+                    f"Failed to connect to CDP at {self.cfg.cdp_url}: {e}"
+                ) from e
         else:
             # Launch new browser
             launch_args = {
@@ -89,11 +111,14 @@ class PlaywrightBrowser:
             }
             # Add --no-sandbox for Linux
             launch_args["args"] = ["--no-sandbox", "--disable-setuid-sandbox"]
-            
+
             try:
                 self._browser = self._playwright.chromium.launch(**launch_args)
                 self._context = self._browser.new_context(
-                    viewport={"width": self.cfg.viewport[0], "height": self.cfg.viewport[1]},
+                    viewport={
+                        "width": self.cfg.viewport[0],
+                        "height": self.cfg.viewport[1],
+                    },
                 )
                 self._page = self._context.new_page()
                 logger.info("Launched new headless browser")
@@ -104,7 +129,7 @@ class PlaywrightBrowser:
         """Navigate to URL."""
         if not url.startswith(("http://", "https://")):
             raise ActionExecutionError(f"Only http/https URLs allowed: {url[:80]}")
-        
+
         try:
             self._page.goto(url, wait_until="networkidle", timeout=_NAV_TIMEOUT)
             # Clear badge cache after navigation
@@ -120,7 +145,9 @@ class PlaywrightBrowser:
         if self._context is None:
             return
 
-        restored = self._session_manager.restore_session(self._context, self.cfg.session_name)
+        restored = self._session_manager.restore_session(
+            self._context, self.cfg.session_name
+        )
         if restored:
             logger.info(f"Restored session: {self.cfg.session_name}")
         else:
@@ -161,7 +188,7 @@ class PlaywrightBrowser:
         """Take screenshot. Returns path and element badges."""
         try:
             self._page.screenshot(path=path, full_page=full_page)
-            
+
             # Extract badges and a11y tree
             result = self._inject_badges()
             result["path"] = path
@@ -174,14 +201,17 @@ class PlaywrightBrowser:
         try:
             script = _INJECT_SCRIPT.read_text()
             result = self._page.evaluate(script)
-            
+
             # Store badge mapping
             self._badge_cache = result.get("badges", [])
             self._badge_map = {b["num"]: b["selector"] for b in self._badge_cache}
-            
+
             return {
                 "refs": self._badge_map,
-                "legend": [f'  [{b["num"]}] {b["selector"]} ({b["a11y"]})' for b in self._badge_cache],
+                "legend": [
+                    f"  [{b['num']}] {b['selector']} ({b['a11y']})"
+                    for b in self._badge_cache
+                ],
                 "a11y_tree": result.get("a11yTree", ""),
                 "url": result.get("url", ""),
                 "title": result.get("title", ""),
@@ -205,7 +235,7 @@ class PlaywrightBrowser:
         """Fill input element with text."""
         if len(text) > 5000:
             raise ActionExecutionError("Text too long (>5000 chars)")
-        
+
         selector = self._resolve_ref(ref)
         try:
             self._page.click(selector, timeout=_ACTION_TIMEOUT)
@@ -217,7 +247,7 @@ class PlaywrightBrowser:
         """Press keyboard key."""
         if key not in _ALLOWED_KEYS:
             raise ActionExecutionError(f"Disallowed key: {key!r}")
-        
+
         try:
             self._page.keyboard.press(key)
         except PlaywrightError as e:
@@ -259,11 +289,11 @@ class PlaywrightBrowser:
             try:
                 act = action.get("action", "")
                 element = action.get("element")
-                
+
                 # Actions that may cause navigation/DOM changes
                 navigation_actions = {"click", "navigate", "open"}
                 is_navigation = act in navigation_actions
-                
+
                 match act:
                     case "click":
                         self.click(element)
@@ -285,23 +315,25 @@ class PlaywrightBrowser:
                     case _:
                         logger.warning(f"Unknown action: {act}")
                         continue
-                
+
                 success += 1
-                
+
                 # After navigation actions, wait for DOM stability
                 if is_navigation:
                     try:
                         # Wait for network idle then wait for DOM to settle
-                        self._page.wait_for_load_state("networkidle", timeout=_ACTION_TIMEOUT)
+                        self._page.wait_for_load_state(
+                            "networkidle", timeout=_ACTION_TIMEOUT
+                        )
                         # Additional small delay for JS-rendered content
                         self._page.wait_for_timeout(500)
                     except Exception as e:
                         logger.debug(f"Wait for DOM stability after {act}: {e}")
-                
+
             except Exception as e:
                 logger.debug(f"Action failed: {action} - {e}")
                 continue
-        
+
         return success
 
     def _resolve_ref(self, ref: str | int) -> str:
@@ -310,7 +342,7 @@ class PlaywrightBrowser:
             if ref in self._badge_map:
                 return self._badge_map[ref]
             raise ActionExecutionError(f"Badge {ref} not found in current page")
-        
+
         if isinstance(ref, str):
             # Handle @e5 format
             if ref.startswith("@e"):
@@ -320,7 +352,7 @@ class PlaywrightBrowser:
                 raise ActionExecutionError(f"Badge {num} not found")
             # Direct CSS selector
             return ref
-        
+
         raise ActionExecutionError(f"Invalid ref: {ref}")
 
     def is_alive(self) -> bool:

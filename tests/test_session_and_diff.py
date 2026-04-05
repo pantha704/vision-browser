@@ -12,6 +12,7 @@ from vision_browser.diff_screenshot import DifferentialScreenshot
 
 # ── Session Manager Tests ──────────────────────────────────────────
 
+
 class TestSessionManagerInit:
     def test_init_creates_dir(self, tmp_path):
         """SessionManager creates session directory."""
@@ -90,8 +91,18 @@ class TestSessionManagerListDelete:
         manager = SessionManager(tmp_path)
 
         # Create two session files
-        session1 = {"version": 1, "saved_at": "2026-04-05T10:00:00+00:00", "name": "s1", "cookies": [{"name": "a"}]}
-        session2 = {"version": 1, "saved_at": "2026-04-05T09:00:00+00:00", "name": "s2", "cookies": []}
+        session1 = {
+            "version": 1,
+            "saved_at": "2026-04-05T10:00:00+00:00",
+            "name": "s1",
+            "cookies": [{"name": "a"}],
+        }
+        session2 = {
+            "version": 1,
+            "saved_at": "2026-04-05T09:00:00+00:00",
+            "name": "s2",
+            "cookies": [],
+        }
         (tmp_path / "s1.json").write_text(json.dumps(session1))
         (tmp_path / "s2.json").write_text(json.dumps(session2))
 
@@ -130,6 +141,7 @@ class TestSessionManagerListDelete:
 
 
 # ── Differential Screenshot Tests ──────────────────────────────────
+
 
 class TestDifferentialScreenshotInit:
     def test_init_default_threshold(self):

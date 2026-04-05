@@ -28,7 +28,9 @@ class TestNIMMockResponses:
         assert "actions" in result
 
     def test_nim_success_response_with_custom_content(self):
-        resp = nim_success_response(content='{"actions": [{"action": "click"}], "done": false, "reasoning": "test"}')
+        resp = nim_success_response(
+            content='{"actions": [{"action": "click"}], "done": false, "reasoning": "test"}'
+        )
         content = resp["choices"][0]["message"]["content"]
         result = VisionClient._extract_json(content)
         assert result["done"] is False

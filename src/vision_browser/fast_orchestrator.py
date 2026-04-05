@@ -58,24 +58,31 @@ ACTION_SCHEMA = {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["click", "fill", "press", "scroll", "wait", "navigate"]
+                        "enum": [
+                            "click",
+                            "fill",
+                            "press",
+                            "scroll",
+                            "wait",
+                            "navigate",
+                        ],
                     },
                     "element": {"type": "integer"},
                     "text": {"type": "string"},
                     "key": {"type": "string"},
                     "direction": {"type": "string", "enum": ["up", "down"]},
                     "amount": {"type": "integer"},
-                    "url": {"type": "string", "format": "uri"}
+                    "url": {"type": "string", "format": "uri"},
                 },
                 "required": ["action"],
-                "additionalProperties": False
-            }
+                "additionalProperties": False,
+            },
         },
         "done": {"type": "boolean"},
-        "reasoning": {"type": "string"}
+        "reasoning": {"type": "string"},
     },
     "required": ["actions", "done", "reasoning"],
-    "additionalProperties": False
+    "additionalProperties": False,
 }
 
 
@@ -85,23 +92,30 @@ class FastOrchestrator:
     def __init__(self, cfg: AppConfig, keep_screenshots: bool = False):
         self.cfg = cfg
         self.browser = PlaywrightBrowser(cfg.browser)
-        self.vision = VisionClient(cfg.vision, {
-            "retry_attempts": cfg.orchestrator.retry_attempts,
-            "retry_backoff_base": cfg.orchestrator.retry_backoff_base,
-            "rate_limit_delay": cfg.orchestrator.rate_limit_delay,
-        })
+        self.vision = VisionClient(
+            cfg.vision,
+            {
+                "retry_attempts": cfg.orchestrator.retry_attempts,
+                "retry_backoff_base": cfg.orchestrator.retry_backoff_base,
+                "rate_limit_delay": cfg.orchestrator.rate_limit_delay,
+            },
+        )
         self.screenshots = ScreenshotManager(keep=keep_screenshots, max_retain=20)
         self._shutdown_requested = False
 
         # Differential screenshot integration (opt-in)
-        diff_enabled = cfg.orchestrator.auto_diff_screenshots or cfg.orchestrator.diff_mode
+        diff_enabled = (
+            cfg.orchestrator.auto_diff_screenshots or cfg.orchestrator.diff_mode
+        )
         self.diff_screenshot: DifferentialScreenshot | None = None
         if diff_enabled:
             self.diff_screenshot = DifferentialScreenshot(
                 threshold=cfg.orchestrator.diff_threshold
             )
         self._diff_log: list[dict] = []  # Diff capture log for debugging
-        self._last_vision_result: dict[str, Any] = {}  # Cache last analysis to skip unchanged
+        self._last_vision_result: dict[
+            str, Any
+        ] = {}  # Cache last analysis to skip unchanged
 
         # Task metrics for CLI summary
         self._task_start_time: float = 0.0
@@ -116,6 +130,7 @@ class FastOrchestrator:
 
     def _register_signals(self) -> None:
         """Register signal handlers for graceful shutdown and screenshot cleanup."""
+
         def _handler(signum: int, _frame: object) -> None:
             logger.info(f"Signal {signum} received, shutting down")
             self._shutdown_requested = True
@@ -132,9 +147,14 @@ class FastOrchestrator:
     def run(self, task: str, url: str | None = None) -> None:
         """Execute automation loop."""
         import time
+
         self._task_start_time = time.monotonic()
         self._task_status = "running"
-        console.print(Panel(f"[bold green]Task:[/bold green] {task}", title="Vision Browser (Fast)"))
+        console.print(
+            Panel(
+                f"[bold green]Task:[/bold green] {task}", title="Vision Browser (Fast)"
+            )
+        )
 
         if self._shutdown_requested:
             console.print("[yellow]Shutdown requested, exiting[/yellow]")
@@ -175,22 +195,28 @@ class FastOrchestrator:
                 console.print("  📸 Capturing screenshot + injecting badges...")
                 shot_path = self.screenshots.next_path()
                 shot = self.browser.screenshot(str(shot_path))
-                
+
                 url = shot.get("url", "") or self.browser.get_url()
                 title = shot.get("title", "") or self.browser.get_title()
-                element_list = self._build_element_list(shot.get("legend", []), max_elements)
+                element_list = self._build_element_list(
+                    shot.get("legend", []), max_elements
+                )
 
                 # Detect same-URL loop
                 if url == last_url:
                     consecutive_failures += 1
                     if consecutive_failures >= 2:
-                        console.print("[yellow]  ⚠️ Stuck on same URL. Forcing strategy change.[/yellow]")
+                        console.print(
+                            "[yellow]  ⚠️ Stuck on same URL. Forcing strategy change.[/yellow]"
+                        )
                 else:
                     consecutive_failures = 0
                 last_url = url
 
                 console.print(f"  📍 {url} — {title}")
-                console.print(f"  📋 Found {len(shot.get('refs', {}))} interactive elements")
+                console.print(
+                    f"  📋 Found {len(shot.get('refs', {}))} interactive elements"
+                )
 
                 # 1.5 Differential screenshot check (before analysis)
                 diff_changed = False
@@ -200,7 +226,12 @@ class FastOrchestrator:
                         logger.debug(f"Screenshot changed at turn {turn}")
                     else:
                         logger.debug(f"Screenshot unchanged at turn {turn}")
-                    self._log_diff(turn=turn, action="pre-analysis", changed=diff_changed, path=str(shot_path))
+                    self._log_diff(
+                        turn=turn,
+                        action="pre-analysis",
+                        changed=diff_changed,
+                        path=str(shot_path),
+                    )
                     # Cleanup old diffs
                     self._cleanup_diffs()
 
@@ -213,13 +244,13 @@ class FastOrchestrator:
                 if diff_changed or not self._last_vision_result:
                     console.print("  🧠 Sending to vision model...")
                     result = self.vision.analyze(
-                        str(self.screenshots.current_path),
-                        prompt,
-                        schema=ACTION_SCHEMA
+                        str(self.screenshots.current_path), prompt, schema=ACTION_SCHEMA
                     )
                     self._last_vision_result = result
                 else:
-                    console.print("  🧠 Screenshot unchanged — skipping Vision API (using cached result)")
+                    console.print(
+                        "  🧠 Screenshot unchanged — skipping Vision API (using cached result)"
+                    )
                     result = self._last_vision_result
 
                 # 4. Execute actions
@@ -236,22 +267,36 @@ class FastOrchestrator:
 
                     self._task_total_actions += len(actions)
                     self._task_succeeded_actions += executed
-                    self._task_failed_actions += (len(actions) - executed)
+                    self._task_failed_actions += len(actions) - executed
 
                     if executed > 0:
                         consecutive_failures = 0
                 else:
                     # No valid actions - try auto-fill fallback for Google homepage
                     if "/search" not in url and "google" in url.lower():
-                        console.print("[yellow]  🔄 No actions from model. Auto-filling search bar...[/yellow]")
+                        console.print(
+                            "[yellow]  🔄 No actions from model. Auto-filling search bar...[/yellow]"
+                        )
                         # Find combobox element
                         for num, legend in enumerate(shot.get("legend", []), 1):
-                            if "combobox" in legend.lower() or "search" in legend.lower():
+                            if (
+                                "combobox" in legend.lower()
+                                or "search" in legend.lower()
+                            ):
                                 try:
                                     import re
-                                    query_match = re.search(r"['\"]([^'\"]+)['\"]", task)
-                                    query = query_match.group(1) if query_match else task[:50]
-                                    console.print(f"[yellow]   Filling with: {query}[/yellow]")
+
+                                    query_match = re.search(
+                                        r"['\"]([^'\"]+)['\"]", task
+                                    )
+                                    query = (
+                                        query_match.group(1)
+                                        if query_match
+                                        else task[:50]
+                                    )
+                                    console.print(
+                                        f"[yellow]   Filling with: {query}[/yellow]"
+                                    )
                                     self.browser.fill(num, query)
                                     self.browser.press("Enter")
                                     consecutive_failures = 0
@@ -267,8 +312,11 @@ class FastOrchestrator:
                     self.browser.screenshot(str(post_shot_path))
                     post_changed = self.diff_screenshot.has_changed(str(post_shot_path))
                     self._log_diff(
-                        turn=turn, action="post-execution", changed=post_changed,
-                        path=str(post_shot_path), actions_executed=executed if 'executed' in dir() else 0,
+                        turn=turn,
+                        action="post-execution",
+                        changed=post_changed,
+                        path=str(post_shot_path),
+                        actions_executed=executed if "executed" in dir() else 0,
                     )
                     self._cleanup_diffs()
 
@@ -280,7 +328,9 @@ class FastOrchestrator:
                         self._task_final_url = url
                         break
                     else:
-                        console.print("[yellow]  ⚠️ Verification failed, continuing...[/yellow]")
+                        console.print(
+                            "[yellow]  ⚠️ Verification failed, continuing...[/yellow]"
+                        )
 
             except Exception as e:
                 logger.error(f"Turn {turn} failed: {e}")
@@ -301,11 +351,11 @@ class FastOrchestrator:
         """Build element list from badge legend."""
         if not legend:
             return "  (no interactive elements found)"
-        
+
         elements = legend[:max_elements]
         if len(legend) > max_elements:
             elements.append(f"  ... and {len(legend) - max_elements} more")
-        
+
         return "\n".join(elements)
 
     def _verify_completion(self, task: str) -> bool:
@@ -315,8 +365,10 @@ class FastOrchestrator:
             shot = self.browser.screenshot(str(shot_path))
             url = shot.get("url", "")
             title = shot.get("title", "")
-            element_list = self._build_element_list(shot.get("legend", []), self.cfg.orchestrator.max_prompt_elements)
-            
+            element_list = self._build_element_list(
+                shot.get("legend", []), self.cfg.orchestrator.max_prompt_elements
+            )
+
             verify_prompt = (
                 f"Task was: {task}\n"
                 f"Current: {url} — {title}\n"
@@ -333,9 +385,12 @@ class FastOrchestrator:
 
     # ── Differential Screenshot Helpers ──────────────────────────────
 
-    def _log_diff(self, turn: int, action: str, changed: bool, path: str, **extra: object) -> None:
+    def _log_diff(
+        self, turn: int, action: str, changed: bool, path: str, **extra: object
+    ) -> None:
         """Log a differential screenshot event."""
         import time
+
         entry: dict[str, object] = {
             "turn": turn,
             "action": action,
@@ -362,7 +417,10 @@ class FastOrchestrator:
     def get_task_summary(self) -> dict:
         """Return task execution summary for CLI reporting."""
         import time
-        elapsed = time.monotonic() - self._task_start_time if self._task_start_time else 0
+
+        elapsed = (
+            time.monotonic() - self._task_start_time if self._task_start_time else 0
+        )
         return {
             "status": self._task_status,
             "turns": self._task_turns,
@@ -376,7 +434,9 @@ class FastOrchestrator:
     def print_task_summary(self) -> None:
         """Print a formatted task summary to the console."""
         summary = self.get_task_summary()
-        status_icon = {"complete": "✅", "failed": "❌", "interrupted": "⏹️"}.get(summary["status"], "⏱️")
+        status_icon = {"complete": "✅", "failed": "❌", "interrupted": "⏹️"}.get(
+            summary["status"], "⏱️"
+        )
 
         lines = [
             "",

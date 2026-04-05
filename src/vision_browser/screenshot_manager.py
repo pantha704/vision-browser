@@ -97,7 +97,9 @@ class ScreenshotManager:
         if self.keep:
             screenshots = self.list_screenshots()
             if screenshots:
-                logger.info(f"Screenshots preserved ({len(screenshots)} files): {self.session_dir}")
+                logger.info(
+                    f"Screenshots preserved ({len(screenshots)} files): {self.session_dir}"
+                )
             return
 
         if self._session_dir and self._session_dir.exists():

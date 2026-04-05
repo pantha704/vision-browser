@@ -100,7 +100,9 @@ class CircuitBreaker:
         if self._state == CircuitState.OPEN:
             elapsed = time.monotonic() - self._last_failure_time
             if elapsed >= self.timeout:
-                logger.info(f"[{self.name}] Circuit: OPEN → HALF_OPEN (timeout {self.timeout}s elapsed)")
+                logger.info(
+                    f"[{self.name}] Circuit: OPEN → HALF_OPEN (timeout {self.timeout}s elapsed)"
+                )
                 self._state = CircuitState.HALF_OPEN
                 self._success_count = 0
             else:

@@ -18,13 +18,16 @@ from vision_browser.fast_orchestrator import (
 
 # ── FastOrchestrator Tests ─────────────────────────────────────────
 
+
 class TestFastOrchestratorInit:
     def test_init_with_config(self):
         """Test FastOrchestrator initialization with config."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser, \
-             patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision, \
-             patch("signal.signal"):
+        with (
+            patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser,
+            patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision,
+            patch("signal.signal"),
+        ):
             orchestrator = FastOrchestrator(cfg)
             assert orchestrator.cfg == cfg
             mock_browser.assert_called_once_with(cfg.browser)
@@ -33,9 +36,11 @@ class TestFastOrchestratorInit:
     def test_init_registers_signals(self):
         """Test signal handlers are registered."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"), \
-             patch("vision_browser.fast_orchestrator.VisionClient"), \
-             patch("signal.signal") as mock_signal:
+        with (
+            patch("vision_browser.fast_orchestrator.PlaywrightBrowser"),
+            patch("vision_browser.fast_orchestrator.VisionClient"),
+            patch("signal.signal") as mock_signal,
+        ):
             FastOrchestrator(cfg)
             assert mock_signal.call_count == 2
             mock_signal.assert_any_call(signal.SIGINT, ANY)
@@ -46,9 +51,11 @@ class TestBuildElementList:
     def test_empty_legend(self):
         """Empty legend returns no-elements message."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"), \
-             patch("vision_browser.fast_orchestrator.VisionClient"), \
-             patch("signal.signal"):
+        with (
+            patch("vision_browser.fast_orchestrator.PlaywrightBrowser"),
+            patch("vision_browser.fast_orchestrator.VisionClient"),
+            patch("signal.signal"),
+        ):
             orchestrator = FastOrchestrator(cfg)
             result = orchestrator._build_element_list([], 5)
             assert "no interactive elements" in result
@@ -56,9 +63,11 @@ class TestBuildElementList:
     def test_legend_within_max(self):
         """Legend within max_elements returns all items."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"), \
-             patch("vision_browser.fast_orchestrator.VisionClient"), \
-             patch("signal.signal"):
+        with (
+            patch("vision_browser.fast_orchestrator.PlaywrightBrowser"),
+            patch("vision_browser.fast_orchestrator.VisionClient"),
+            patch("signal.signal"),
+        ):
             orchestrator = FastOrchestrator(cfg)
             legend = ["[1] #search (combobox)", "[2] #submit (button)"]
             result = orchestrator._build_element_list(legend, 5)
@@ -69,9 +78,11 @@ class TestBuildElementList:
     def test_legend_exceeds_max(self):
         """Legend exceeding max_elements is truncated with count."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"), \
-             patch("vision_browser.fast_orchestrator.VisionClient"), \
-             patch("signal.signal"):
+        with (
+            patch("vision_browser.fast_orchestrator.PlaywrightBrowser"),
+            patch("vision_browser.fast_orchestrator.VisionClient"),
+            patch("signal.signal"),
+        ):
             orchestrator = FastOrchestrator(cfg)
             legend = [f"[{i}] elem{i}" for i in range(1, 11)]
             result = orchestrator._build_element_list(legend, 3)
@@ -84,10 +95,14 @@ class TestRunLoop:
     def test_run_loop_single_turn_success(self):
         """Test run loop completes successfully in one turn."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser_cls, \
-             patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls, \
-             patch("vision_browser.fast_orchestrator.Console"), \
-             patch("signal.signal"):
+        with (
+            patch(
+                "vision_browser.fast_orchestrator.PlaywrightBrowser"
+            ) as mock_browser_cls,
+            patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls,
+            patch("vision_browser.fast_orchestrator.Console"),
+            patch("signal.signal"),
+        ):
             mock_browser = MagicMock()
             mock_browser_cls.return_value = mock_browser
             mock_vision = MagicMock()
@@ -118,10 +133,12 @@ class TestRunLoop:
     def test_run_loop_shutdown_requested(self):
         """Test run loop exits when shutdown requested."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"), \
-             patch("vision_browser.fast_orchestrator.VisionClient"), \
-             patch("vision_browser.fast_orchestrator.Console"), \
-             patch("signal.signal"):
+        with (
+            patch("vision_browser.fast_orchestrator.PlaywrightBrowser"),
+            patch("vision_browser.fast_orchestrator.VisionClient"),
+            patch("vision_browser.fast_orchestrator.Console"),
+            patch("signal.signal"),
+        ):
             orchestrator = FastOrchestrator(cfg)
             orchestrator._shutdown_requested = True
             orchestrator._run_loop("test task")
@@ -130,10 +147,14 @@ class TestRunLoop:
     def test_run_loop_consecutive_failures(self):
         """Test run loop detects consecutive failures on same URL."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser_cls, \
-             patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls, \
-             patch("vision_browser.fast_orchestrator.Console"), \
-             patch("signal.signal"):
+        with (
+            patch(
+                "vision_browser.fast_orchestrator.PlaywrightBrowser"
+            ) as mock_browser_cls,
+            patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls,
+            patch("vision_browser.fast_orchestrator.Console"),
+            patch("signal.signal"),
+        ):
             mock_browser = MagicMock()
             mock_browser_cls.return_value = mock_browser
             mock_vision = MagicMock()
@@ -165,10 +186,14 @@ class TestRunLoop:
     def test_run_loop_max_turns(self):
         """Test run loop stops at max turns."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser_cls, \
-             patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls, \
-             patch("vision_browser.fast_orchestrator.Console"), \
-             patch("signal.signal"):
+        with (
+            patch(
+                "vision_browser.fast_orchestrator.PlaywrightBrowser"
+            ) as mock_browser_cls,
+            patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls,
+            patch("vision_browser.fast_orchestrator.Console"),
+            patch("signal.signal"),
+        ):
             mock_browser = MagicMock()
             mock_browser_cls.return_value = mock_browser
             mock_vision = MagicMock()
@@ -199,10 +224,14 @@ class TestRunLoop:
     def test_run_loop_exception_handling(self):
         """Test run loop handles exceptions gracefully."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser_cls, \
-             patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls, \
-             patch("vision_browser.fast_orchestrator.Console"), \
-             patch("signal.signal"):
+        with (
+            patch(
+                "vision_browser.fast_orchestrator.PlaywrightBrowser"
+            ) as mock_browser_cls,
+            patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls,
+            patch("vision_browser.fast_orchestrator.Console"),
+            patch("signal.signal"),
+        ):
             mock_browser = MagicMock()
             mock_browser_cls.return_value = mock_browser
             mock_vision = MagicMock()
@@ -223,9 +252,13 @@ class TestVerifyCompletion:
     def test_verify_complete_returns_true(self):
         """Test verification returns True when model says complete."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser_cls, \
-             patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls, \
-             patch("signal.signal"):
+        with (
+            patch(
+                "vision_browser.fast_orchestrator.PlaywrightBrowser"
+            ) as mock_browser_cls,
+            patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls,
+            patch("signal.signal"),
+        ):
             mock_browser = MagicMock()
             mock_browser_cls.return_value = mock_browser
             mock_vision = MagicMock()
@@ -246,9 +279,13 @@ class TestVerifyCompletion:
     def test_verify_complete_exception_returns_true(self):
         """Test verification returns True (accepts) when verification fails."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser_cls, \
-             patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls, \
-             patch("signal.signal"):
+        with (
+            patch(
+                "vision_browser.fast_orchestrator.PlaywrightBrowser"
+            ) as mock_browser_cls,
+            patch("vision_browser.fast_orchestrator.VisionClient") as mock_vision_cls,
+            patch("signal.signal"),
+        ):
             mock_browser = MagicMock()
             mock_browser_cls.return_value = mock_browser
             mock_vision = MagicMock()
@@ -265,9 +302,13 @@ class TestClose:
     def test_close_delegates_to_browser(self):
         """Test close calls browser.close()."""
         cfg = AppConfig()
-        with patch("vision_browser.fast_orchestrator.PlaywrightBrowser") as mock_browser_cls, \
-             patch("vision_browser.fast_orchestrator.VisionClient"), \
-             patch("signal.signal"):
+        with (
+            patch(
+                "vision_browser.fast_orchestrator.PlaywrightBrowser"
+            ) as mock_browser_cls,
+            patch("vision_browser.fast_orchestrator.VisionClient"),
+            patch("signal.signal"),
+        ):
             mock_browser = MagicMock()
             mock_browser_cls.return_value = mock_browser
 
@@ -278,10 +319,12 @@ class TestClose:
 
 # ── CLI Tests ──────────────────────────────────────────────────────
 
+
 class TestCLI:
     def test_main_argparse_task_required(self):
         """Test CLI requires task argument."""
         from vision_browser.cli import main
+
         with pytest.raises(SystemExit):
             with patch("sys.argv", ["vision-browser"]):
                 main()
@@ -289,14 +332,19 @@ class TestCLI:
     def test_main_config_file_not_found_uses_defaults(self):
         """Test CLI uses defaults when config file not found."""
         from vision_browser.cli import main
+
         mock_cfg_instance = MagicMock()
-        with patch("sys.argv", ["vision-browser", "test", "--fast"]), \
-             patch("vision_browser.cli._setup_logging"), \
-             patch("vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"), \
-             patch("vision_browser.cli.AppConfig") as mock_cfg, \
-             patch("vision_browser.fast_orchestrator.FastOrchestrator") as mock_fast, \
-             patch("vision_browser.orchestrator.Orchestrator"), \
-             patch("sys.exit"):
+        with (
+            patch("sys.argv", ["vision-browser", "test", "--fast"]),
+            patch("vision_browser.cli._setup_logging"),
+            patch(
+                "vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"
+            ),
+            patch("vision_browser.cli.AppConfig") as mock_cfg,
+            patch("vision_browser.fast_orchestrator.FastOrchestrator") as mock_fast,
+            patch("vision_browser.orchestrator.Orchestrator"),
+            patch("sys.exit"),
+        ):
             mock_cfg.from_yaml.side_effect = FileNotFoundError
             mock_cfg.return_value = mock_cfg_instance
             mock_fast.return_value = MagicMock()
@@ -308,10 +356,15 @@ class TestCLI:
     def test_main_config_error_exits(self):
         """Test CLI exits on config error."""
         from vision_browser.cli import main
-        with patch("sys.argv", ["vision-browser", "test"]), \
-             patch("vision_browser.cli._setup_logging"), \
-             patch("vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"), \
-             patch("vision_browser.cli.AppConfig") as mock_cfg:
+
+        with (
+            patch("sys.argv", ["vision-browser", "test"]),
+            patch("vision_browser.cli._setup_logging"),
+            patch(
+                "vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"
+            ),
+            patch("vision_browser.cli.AppConfig") as mock_cfg,
+        ):
             mock_cfg.from_yaml.side_effect = Exception("bad config")
             with pytest.raises(SystemExit):
                 main()
@@ -319,9 +372,12 @@ class TestCLI:
     def test_main_agent_browser_missing(self):
         """Test CLI errors when agent-browser not on PATH."""
         from vision_browser.cli import main
-        with patch("sys.argv", ["vision-browser", "test"]), \
-             patch("vision_browser.cli._setup_logging"), \
-             patch("vision_browser.cli.shutil.which", return_value=None):
+
+        with (
+            patch("sys.argv", ["vision-browser", "test"]),
+            patch("vision_browser.cli._setup_logging"),
+            patch("vision_browser.cli.shutil.which", return_value=None),
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 1
@@ -329,16 +385,27 @@ class TestCLI:
     def test_main_config_override_brave(self):
         """Test CLI applies --brave config override."""
         from vision_browser.cli import main
+
         mock_cfg_instance = MagicMock()
-        with patch("sys.argv", [
-            "vision-browser", "test", "--fast",
-            "--brave",
-        ]), patch("vision_browser.cli._setup_logging"), \
-          patch("vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"), \
-          patch("vision_browser.cli.AppConfig") as mock_cfg, \
-          patch("vision_browser.fast_orchestrator.FastOrchestrator") as mock_fast, \
-          patch("vision_browser.orchestrator.Orchestrator"), \
-          patch("sys.exit"):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "vision-browser",
+                    "test",
+                    "--fast",
+                    "--brave",
+                ],
+            ),
+            patch("vision_browser.cli._setup_logging"),
+            patch(
+                "vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"
+            ),
+            patch("vision_browser.cli.AppConfig") as mock_cfg,
+            patch("vision_browser.fast_orchestrator.FastOrchestrator") as mock_fast,
+            patch("vision_browser.orchestrator.Orchestrator"),
+            patch("sys.exit"),
+        ):
             mock_cfg.from_yaml.return_value = mock_cfg_instance
             mock_fast.return_value = MagicMock()
 
@@ -349,16 +416,27 @@ class TestCLI:
     def test_main_config_override_session(self):
         """Test CLI applies --session config override."""
         from vision_browser.cli import main
+
         mock_cfg_instance = MagicMock()
-        with patch("sys.argv", [
-            "vision-browser", "test",
-            "--session", "auth-session",
-        ]), patch("vision_browser.cli._setup_logging"), \
-          patch("vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"), \
-          patch("vision_browser.cli.AppConfig") as mock_cfg, \
-          patch("vision_browser.fast_orchestrator.FastOrchestrator") as mock_fast, \
-          patch("vision_browser.orchestrator.Orchestrator"), \
-          patch("sys.exit"):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "vision-browser",
+                    "test",
+                    "--session",
+                    "auth-session",
+                ],
+            ),
+            patch("vision_browser.cli._setup_logging"),
+            patch(
+                "vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"
+            ),
+            patch("vision_browser.cli.AppConfig") as mock_cfg,
+            patch("vision_browser.fast_orchestrator.FastOrchestrator") as mock_fast,
+            patch("vision_browser.orchestrator.Orchestrator"),
+            patch("sys.exit"),
+        ):
             mock_cfg.from_yaml.return_value = mock_cfg_instance
             mock_fast.return_value = MagicMock()
 
@@ -369,19 +447,25 @@ class TestCLI:
     def test_main_verbose_flag(self):
         """Test CLI passes verbose flag to logging setup."""
         from vision_browser.cli import main
-        with patch("sys.argv", ["vision-browser", "test", "--verbose"]), \
-             patch("vision_browser.cli._setup_logging") as mock_logging, \
-             patch("vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"), \
-             patch("vision_browser.cli.AppConfig") as mock_cfg, \
-             patch("vision_browser.fast_orchestrator.FastOrchestrator"), \
-             patch("vision_browser.orchestrator.Orchestrator"), \
-             patch("sys.exit"):
+
+        with (
+            patch("sys.argv", ["vision-browser", "test", "--verbose"]),
+            patch("vision_browser.cli._setup_logging") as mock_logging,
+            patch(
+                "vision_browser.cli.shutil.which", return_value="/usr/bin/agent-browser"
+            ),
+            patch("vision_browser.cli.AppConfig") as mock_cfg,
+            patch("vision_browser.fast_orchestrator.FastOrchestrator"),
+            patch("vision_browser.orchestrator.Orchestrator"),
+            patch("sys.exit"),
+        ):
             mock_cfg.from_yaml.return_value = MagicMock()
             main()
             mock_logging.assert_called_once_with(verbose=True)
 
 
 # ── Prompts and Schema Tests ───────────────────────────────────────
+
 
 class TestPrompts:
     def test_system_prompt_defined(self):
