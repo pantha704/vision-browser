@@ -1,15 +1,25 @@
 # Milestones
 
-## v0.6 Developer Experience & Reliability (In Progress)
+## v0.6 Developer Experience & Reliability (Shipped: 2026-04-05)
 
-**Goal:** Harden the platform by closing known gaps, integrating existing modules into the core flow, and improving developer experience for production readiness.
+**Phases completed:** 5 phases (10-14), 6 plans
 
-**Target features:**
-- Model JSON compliance — structured output enforcement, retry strategies, fallback chains
-- Differential screenshot integration — auto-capture in orchestrator execution flow
-- MCP server hardening — error recovery, connection lifecycle, additional tools
-- CLI improvements — progress indicators, better error messages, task reporting
-- Test coverage completion — close remaining gaps in VisionClient + DesktopController
+**Git range:** `3ff5fd3` (start v0.6) → `431eab7` (complete v0.6)
+**Files changed:** 77 files, 7,376 insertions, 31 deletions
+**Timeline:** ~15 hours (2026-04-05 02:10 → 16:58 IST)
+
+**Key accomplishments:**
+
+1. **HTTP mock infrastructure** — pytest-httpx integration with 8 mock response builders (valid + malformed) and 10 reusable fixtures enabling deterministic, network-free testing
+2. **222 tests passing** — Migrated all VisionClient tests from `patch("httpx.post")` to httpx_mock, added coverage config achieving 93% on vision.py, 100% on config/desktop/exceptions
+3. **Model JSON compliance** — `ModelResponseError` class, regex-based JSON extraction from markdown code blocks and prose, progressive retry with stricter prompts (max 2 retries)
+4. **Diff screenshot integration** — Auto-capture differential screenshots in orchestrator flow with configurable threshold, context storage, and automatic cleanup (max 10 retained)
+5. **MCP server hardening** — Health check tool, error recovery wrapping all tool handlers, connection state tracking (connected/recovering/degraded), structured error responses with `retry_after` hints
+6. **CLI improvements** — Rich progress indicators, human-readable error messages with suggested fixes, task summary reports, graceful fallback when Rich is unavailable
+7. **Bug fix: HTTPError .response AttributeError** — Discovered and fixed that `httpx.HTTPError` subclasses (e.g., `ConnectError`) lack `.response` attribute, preventing `AttributeError` propagation
+
+**Known gaps:**
+- All 20 v0.6 requirements were implemented but REQUIREMENTS.md traceability table was not updated during development (all show "Not started" despite being complete)
 
 ---
 

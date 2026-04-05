@@ -12,7 +12,7 @@ Navigate, search, fill forms, and extract data from any website using natural la
 
 ## Context
 
-- **Status:** v0.6 started — Developer Experience & Reliability
+- **Status:** v0.6 shipped — Developer Experience & Reliability
 - **Repository:** https://github.com/pantha704/vision-browser
 - **Type:** Python library + CLI tool
 - **License:** MIT
@@ -24,7 +24,7 @@ Navigate, search, fill forms, and extract data from any website using natural la
 - **Browser:** Playwright (CDP for Chromium, standard for Firefox/WebKit)
 - **Vision AI:** NVIDIA NIM Llama 3.2 90B Vision (primary), Groq (fallback)
 - **Legacy:** agent-browser CLI wrapper (preserved as fallback)
-- **Testing:** pytest (151+ tests across all modules)
+- **Testing:** pytest (222 tests, httpx_mock fixtures, 93%+ on core modules)
 - **Protocols:** MCP (Model Context Protocol), WebSocket
 
 ### Architecture
@@ -52,21 +52,23 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 - ✅ Structured logging (JSON file + console)
 - ✅ Pydantic config models with validation
 - ✅ Custom exception hierarchy
-- ✅ 151+ unit tests passing across all modules
-- ✅ MCP server with 6 tools (navigate, screenshot, click, fill, extract, execute)
+- ✅ **222 tests passing** across all modules (93%+ coverage on core modules)
+- ✅ **HTTP mock infrastructure** — pytest-httpx with reusable fixtures for deterministic testing
+- ✅ **Model JSON compliance** — `ModelResponseError`, regex extraction, progressive retry
+- ✅ **MCP server with 6 tools** (navigate, screenshot, click, fill, extract, execute)
+- ✅ **MCP server hardened** — health check tool, error recovery, connection state tracking
 - ✅ WebSocket live preview with HTML dashboard
 - ✅ Multi-browser support (Chromium, Firefox, WebKit)
 - ✅ Concurrent session pool with isolation
-- ✅ Differential screenshots (binary + pixel-level diffing)
+- ✅ **Diff screenshot integration** — auto-capture in orchestrator with configurable threshold
 - ✅ Persistent session management (cookies, storage)
+- ✅ **CLI polish** — Rich progress indicators, readable errors, task summaries
 
 ### Known Gaps
 
-- Model JSON compliance (NIM returns prose ~50% — partially mitigated by schema enforcement)
-- Differential screenshots not yet integrated into orchestrator execution flow
-- CLI lacks real-time progress indicators during task execution
-- MCP server lacks error recovery and connection lifecycle management
-- Test coverage gaps in VisionClient + DesktopController (Phase 2.0 completed without formal SUMMARY)
+- Model JSON compliance improved but NIM still returns prose occasionally (mitigated by retry + regex extraction)
+- Overall package coverage at 56% (orchestrator.py at 12%, browser.py at 28%) due to integration-heavy modules
+- No formal chaos/property-based testing yet
 
 ---
 
@@ -91,23 +93,27 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 - ✓ WebSocket live preview — v0.5
 - ✓ Multi-browser support (Firefox, Safari) — v0.5
 - ✓ Concurrent multi-browser sessions — v0.5
+- ✓ Model JSON compliance (MODEL-01 to MODEL-04) — v0.6
+- ✓ Diff screenshot integration (DIFF-01 to DIFF-04) — v0.6
+- ✓ MCP server hardening (MCP-01 to MCP-04) — v0.6
+- ✓ CLI improvements (CLI-01 to CLI-04) — v0.6
+- ✓ Test coverage (TEST-01 to TEST-04) — v0.6
 
 ### Active
 
-- [ ] Full test coverage — Phase 2.0 gap (VisionClient + DesktopController tests)
-- [ ] Model JSON compliance improvement
-- [ ] Next milestone features (TBD)
+- [ ] Next milestone features (TBD — v0.7 planning)
+- [ ] Improve overall package coverage (orchestrator.py at 12%, browser.py at 28%)
 
-## Current Milestone: v0.6 Developer Experience & Reliability
+## Current Milestone: v0.7 (TBD)
 
-**Goal:** Harden the platform by closing known gaps, integrating existing modules into the core flow, and improving developer experience for production readiness.
+**Previous milestone:** v0.6 Developer Experience & Reliability (shipped 2026-04-05)
 
-**Target features:**
-- Model JSON compliance — structured output enforcement, retry strategies, fallback chains
-- Differential screenshot integration — auto-capture in orchestrator execution flow
-- MCP server hardening — error recovery, connection lifecycle, additional tools
-- CLI improvements — progress indicators, better error messages, task reporting
-- Test coverage completion — close remaining gaps in VisionClient + DesktopController
+**v0.6 delivered:**
+- 5 phases, 222 tests passing (93%+ coverage on core modules)
+- Model JSON compliance with progressive retry
+- Diff screenshot integration in orchestrator flow
+- MCP server hardening with health tool and error recovery
+- CLI polish with Rich progress indicators and readable errors
 
 ### Out of Scope
 
@@ -130,6 +136,10 @@ Playwright CDP → Badge Injection (200ms) → Vision Model → DOM Execution (5
 | Multi-engine support | Firefox + Safari via Playwright engines | ✓ Unified API, CDP restricted to Chromium |
 | Session pool architecture | Independent contexts for concurrency | ✓ Isolation verified, clean shutdown |
 | Differential screenshots | Reduce bandwidth and API costs | ✓ Binary fast path, PIL optional for regions |
+| pytest-httpx over patch("httpx.post") | HTTP-level interception catches all httpx usage | ✓ Deterministic tests, no network needed |
+| ModelResponseError for validation failures | Structured errors over silent fallbacks | ✓ Retry with stricter prompts, then fail with context |
+| MCP error recovery wrapping | Per-handler try/except prevents server crashes | ✓ All tools recover gracefully |
+| Rich as optional dependency | Graceful fallback for environments without Rich | ✓ CLI works with or without |
 
 ---
 
@@ -152,4 +162,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-05 after v0.6 milestone start*
+*Last updated: 2026-04-05 after v0.6 milestone shipped*
