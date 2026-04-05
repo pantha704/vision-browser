@@ -36,7 +36,10 @@ class DifferentialScreenshot:
         Returns:
             True if changes detected exceed the threshold.
         """
-        current_data = Path(current_path).read_bytes()
+        try:
+            current_data = Path(current_path).read_bytes()
+        except FileNotFoundError:
+            return True
 
         if self._previous_screenshot is None:
             self._previous_screenshot = current_data

@@ -132,9 +132,17 @@ class FastOrchestrator:
         """Register signal handlers for graceful shutdown and screenshot cleanup."""
 
         def _handler(signum: int, _frame: object) -> None:
-            logger.info(f"Signal {signum} received, shutting down")
             self._shutdown_requested = True
+            # Don't log during signal handling — could cause reentrancy issues
             self.screenshots.cleanup()
+            # If verification is running, cancel it gracefully
+            try:
+                self.browser.close()
+            except Exception:
+                pass
+            import sys
+
+            sys.exit(0)
 
         signal.signal(signal.SIGINT, _handler)
         signal.signal(signal.SIGTERM, _handler)

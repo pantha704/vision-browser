@@ -131,7 +131,14 @@ class PlaywrightBrowser:
             raise ActionExecutionError(f"Only http/https URLs allowed: {url[:80]}")
 
         try:
-            self._page.goto(url, wait_until="networkidle", timeout=_NAV_TIMEOUT)
+            # Use "load" instead of "networkidle" for heavy SPAs
+            # (Instagram, X, etc. have infinite analytics connections)
+            self._page.goto(url, wait_until="load", timeout=_NAV_TIMEOUT)
+            # Short wait for network to settle without blocking forever
+            try:
+                self._page.wait_for_load_state("domcontentloaded", timeout=10_000)
+            except Exception:
+                pass  # Page is usable even if DOM isn't fully ready
             # Clear badge cache after navigation
             self._badge_map = {}
             self._badge_cache = []
