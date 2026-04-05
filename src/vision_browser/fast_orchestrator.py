@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import signal
 from typing import Any
@@ -11,6 +12,7 @@ from rich.panel import Panel
 
 from vision_browser.config import AppConfig
 from vision_browser.diff_screenshot import DifferentialScreenshot
+from vision_browser.error_tracker import ErrorTracker
 from vision_browser.playwright_browser import PlaywrightBrowser
 from vision_browser.screenshot_manager import ScreenshotManager
 from vision_browser.vision import VisionClient
@@ -116,6 +118,9 @@ class FastOrchestrator:
         self._last_vision_result: dict[
             str, Any
         ] = {}  # Cache last analysis to skip unchanged
+        self._error_tracker = ErrorTracker()  # Comprehensive error tracking
+        self._last_action_key: str = ""  # For same-action loop detection
+        self._same_action_count: int = 0  # Consecutive same actions
 
         # Task metrics for CLI summary
         self._task_start_time: float = 0.0
@@ -135,14 +140,8 @@ class FastOrchestrator:
             self._shutdown_requested = True
             # Don't log during signal handling — could cause reentrancy issues
             self.screenshots.cleanup()
-            # If verification is running, cancel it gracefully
-            try:
-                self.browser.close()
-            except Exception:
-                pass
-            import sys
-
-            sys.exit(0)
+            # Don't call sys.exit(0) — it kills the entire process group
+            # including Brave if launched as child. Just set flag and return.
 
         signal.signal(signal.SIGINT, _handler)
         signal.signal(signal.SIGTERM, _handler)
@@ -174,13 +173,21 @@ class FastOrchestrator:
             try:
                 self.browser.open(url)
             except Exception as e:
+                self._error_tracker.record(
+                    phase="navigation",
+                    error=e,
+                    url=url,
+                    recoverable=False,
+                )
                 console.print(f"[red]Navigation failed: {e}[/red]")
                 self._task_status = "failed"
                 self._task_final_url = url
+                self._print_error_summary()
                 self.close()
                 return
 
         self._run_loop(task)
+        self._print_error_summary()
         self.close()
 
     def _run_loop(self, task: str) -> None:
@@ -197,6 +204,10 @@ class FastOrchestrator:
                 break
 
             console.print(f"\n[bold cyan]Turn {turn}/{max_turns}[/bold cyan]")
+
+            url = last_url or ""
+            title = ""
+            shot: dict[str, Any] = {}
 
             try:
                 # 1. Screenshot + inject badges + extract a11y tree
@@ -277,6 +288,22 @@ class FastOrchestrator:
                     self._task_succeeded_actions += executed
                     self._task_failed_actions += len(actions) - executed
 
+                    # Same-action loop detection
+                    action_key = json.dumps(actions, sort_keys=True)
+                    if action_key == self._last_action_key:
+                        self._same_action_count += 1
+                        if self._same_action_count >= 3:
+                            console.print(
+                                "[yellow]  ⚠️ Same action repeated 3x — forcing strategy reset[/yellow]"
+                            )
+                            self._last_vision_result = {}
+                            self._same_action_count = 0
+                            if self.diff_screenshot:
+                                self.diff_screenshot.reset()
+                    else:
+                        self._last_action_key = action_key
+                        self._same_action_count = 0
+
                     if executed > 0:
                         consecutive_failures = 0
                 else:
@@ -341,7 +368,15 @@ class FastOrchestrator:
                         )
 
             except Exception as e:
-                logger.error(f"Turn {turn} failed: {e}")
+                self._error_tracker.record(
+                    phase="turn_loop",
+                    error=e,
+                    url=url,
+                    title=title,
+                    turn=turn,
+                    element_refs=len(shot.get("refs", {})),
+                    recoverable=True,
+                )
                 console.print(f"  ❌ [red]Error:[/red] {e}")
                 consecutive_failures += 1
 
@@ -460,3 +495,14 @@ class FastOrchestrator:
 
         for line in lines:
             console.print(line)
+
+    def _print_error_summary(self) -> None:
+        """Print error summary if any errors occurred."""
+        if self._error_tracker.error_count == 0:
+            return
+        self._error_tracker.print_summary()
+        # Save report for post-mortem
+        try:
+            self._error_tracker.save_report()
+        except Exception:
+            pass

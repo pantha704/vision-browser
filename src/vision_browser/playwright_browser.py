@@ -174,11 +174,14 @@ class PlaywrightBrowser:
 
     def close(self) -> None:
         """Close browser. Skip if using CDP (user controls the browser)."""
-        # Save session before closing
+        if self.cfg.cdp_url:
+            # Never close CDP-connected browser — user owns it
+            logger.debug("CDP mode: skipping browser close (user controls Brave)")
+            return
+
+        # Save session before closing owned browser
         self.save_session()
 
-        if self.cfg.cdp_url:
-            return
         try:
             if self._page:
                 self._page.close()
@@ -261,12 +264,32 @@ class PlaywrightBrowser:
             raise ActionExecutionError(f"Key press failed: {e}") from e
 
     def scroll(self, direction: str = "down", amount: int = 500) -> None:
-        """Scroll page."""
+        """Scroll page using native DOM scroll (avoids SPA JS conflicts)."""
         try:
+            # Use smooth scroll on the document element to avoid
+            # SPA infinite-scroll JS from fighting the scroll position
             if direction == "down":
-                self._page.evaluate(f"window.scrollBy(0, {amount})")
+                self._page.evaluate(
+                    f"""() => {{
+                        const el = document.documentElement;
+                        el.scrollTo({{
+                            top: el.scrollTop + {amount},
+                            behavior: 'smooth'
+                        }});
+                    }}"""
+                )
             else:
-                self._page.evaluate(f"window.scrollBy(0, -{amount})")
+                self._page.evaluate(
+                    f"""() => {{
+                        const el = document.documentElement;
+                        el.scrollTo({{
+                            top: el.scrollTop - {amount},
+                            behavior: 'smooth'
+                        }});
+                    }}"""
+                )
+            # Brief wait for scroll to complete
+            self._page.wait_for_timeout(300)
         except PlaywrightError as e:
             raise BrowserError(f"Scroll failed: {e}") from e
 
