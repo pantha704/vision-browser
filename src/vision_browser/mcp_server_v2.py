@@ -43,7 +43,7 @@ _browser: PlaywrightBrowser | None = None
 _vision: VisionClient | None = None
 _cfg: AppConfig | None = None
 _element_cache: list[dict[str, Any]] = []
-_task_turn: int = 0
+_server_start_time: float = 0.0
 
 
 def _get_browser() -> PlaywrightBrowser:
@@ -57,12 +57,19 @@ def _get_browser() -> PlaywrightBrowser:
 
 
 def _get_vision() -> VisionClient:
-    """Get or create vision client."""
+    """Get or create vision client with orchestrator config."""
     global _vision, _cfg
     if _vision is None:
         if _cfg is None:
             _cfg = AppConfig()
-        _vision = VisionClient(_cfg.vision)
+        _vision = VisionClient(
+            _cfg.vision,
+            {
+                "retry_attempts": _cfg.orchestrator.retry_attempts,
+                "retry_backoff_base": _cfg.orchestrator.retry_backoff_base,
+                "rate_limit_delay": _cfg.orchestrator.rate_limit_delay,
+            },
+        )
     return _vision
 
 
@@ -75,8 +82,10 @@ def vision_browser_health() -> dict:
     Returns:
         Dictionary with server uptime, browser connection status, and version.
     """
-    global _browser
-    uptime = time.monotonic()
+    global _browser, _server_start_time
+    if _server_start_time == 0.0:
+        _server_start_time = time.monotonic()
+    uptime = time.monotonic() - _server_start_time
     browser_ok = False
     url = ""
     title = ""
@@ -115,13 +124,12 @@ def vision_browser_navigate(url: str) -> dict:
     Example:
         vision_browser_navigate(url="https://www.google.com")
     """
-    global _element_cache, _task_turn
-    _task_turn = 0
+    global _element_cache
     _element_cache = []
 
     browser = _get_browser()
 
-    if not url.startswith(("http://", "https://")):
+    if not url.lower().startswith(("http://", "https://")):
         return {
             "success": False,
             "error": "URL must start with http:// or https://",
@@ -510,7 +518,6 @@ def vision_browser_execute(task: str) -> dict:
         This requires NVIDIA API key (NVIDIA_API_KEY environment variable).
         The task may take 10-60 seconds depending on complexity.
     """
-    global _task_turn
     browser = _get_browser()
     vision = _get_vision()
 

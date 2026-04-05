@@ -182,17 +182,27 @@ class PlaywrightBrowser:
         # Save session before closing owned browser
         self.save_session()
 
-        try:
-            if self._page:
+        # Close each resource independently to prevent leaks on partial failure
+        if self._page:
+            try:
                 self._page.close()
-            if self._context:
+            except Exception as e:
+                logger.debug(f"Page close error: {e}")
+        if self._context:
+            try:
                 self._context.close()
-            if self._browser:
+            except Exception as e:
+                logger.debug(f"Context close error: {e}")
+        if self._browser:
+            try:
                 self._browser.close()
-            if self._playwright:
+            except Exception as e:
+                logger.debug(f"Browser close error: {e}")
+        if self._playwright:
+            try:
                 self._playwright.stop()
-        except Exception as e:
-            logger.warning(f"Error closing browser: {e}")
+            except Exception as e:
+                logger.debug(f"Playwright stop error: {e}")
 
     def screenshot(self, path: str, *, full_page: bool = False) -> dict[str, Any]:
         """Take screenshot. Returns path and element badges."""
@@ -463,7 +473,10 @@ class PlaywrightBrowser:
         timeout: int = _ACTION_TIMEOUT,
     ) -> bool:
         """Fill input element found via semantic locators.
-        
+
+        Playwright's fill() already handles focusing and selecting text.
+        We do NOT call click() first — it can trigger dropdowns/modals.
+
         Returns True if filled, False if not found.
         """
         locator = self._make_locator(
@@ -473,7 +486,6 @@ class PlaywrightBrowser:
         if locator is None:
             return False
         try:
-            locator.click(timeout=timeout)
             locator.fill(text, timeout=timeout)
             return True
         except PlaywrightError as e:
@@ -561,6 +573,7 @@ class PlaywrightBrowser:
                         const classes = Array.from(el.classList)
                             .filter(c => !c.startsWith('css-') && !c.startsWith('yt-') && c.length < 20)
                             .slice(0, 2)
+                            .map(c => CSS.escape(c))
                             .join('.');
                         if (classes) sel += `.${classes}`;
                     }
@@ -731,9 +744,6 @@ class PlaywrightBrowser:
                     return loc
             except Exception:
                 continue
-        
-        # If none found, return the first candidate anyway (will fail on click/fill)
-        first = candidates[0]
-        if has_text:
-            first = first.filter(has_text=has_text)
-        return first
+
+        # No candidates matched — return None (caller handles gracefully)
+        return None

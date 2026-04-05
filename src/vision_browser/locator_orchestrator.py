@@ -33,7 +33,7 @@ TASK FORMAT:
 AVAILABLE ACTIONS:
 - click: Click element by index (e.g., {"action": "click", "element": 5})
 - fill: Fill input by index with text (e.g., {"action": "fill", "element": 3, "text": "hello"})
-- click_first_video: Click the first video result on a YouTube search page (e.g., {"action": "click_first_video"})
+- click_first_video: Click the first video result on a search page (e.g., {"action": "click_first_video"})
 - press: Press a key (e.g., {"action": "press", "key": "Enter"})
 - scroll: Scroll page (e.g., {"action": "scroll", "direction": "down", "amount": 500})
 - navigate: Go to a URL (e.g., {"action": "navigate", "url": "https://example.com"})
@@ -45,7 +45,7 @@ RULES:
 2. If you need to search: fill the search input index, then press Enter.
 3. If you need to click a link: use the element number.
 4. Return ONLY valid JSON. No markdown, no explanation.
-5. Set "done" to true ONLY when the task is fully complete (URL changed, content loaded).
+5. Set "done" to true ONLY when the task is fully complete.
 
 RESPONSE FORMAT:
 {"actions": [{"action": "fill", "element": 3, "text": "query"}, {"action": "press", "key": "Enter"}], "done": false, "reasoning": "why"}
@@ -65,6 +65,14 @@ INTERACTIVE ELEMENTS:
 
 Return ONLY JSON with actions to accomplish the task.
 """
+
+# Allowed keyboard keys — same as playwright_browser.py
+_ALLOWED_KEYS = frozenset({
+    "Enter", "Tab", "Escape", "Backspace", "Delete",
+    "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+    "Home", "End", "PageUp", "PageDown", " ",
+    "Control+a", "Control+c", "Control+v", "Control+x", "Control+z",
+})
 
 
 class LocatorOrchestrator:
@@ -94,7 +102,6 @@ class LocatorOrchestrator:
         self._last_action_key = ""
         self._same_action_count = 0
         self._initial_url: str = ""
-        self._visited_watch_url: bool = False  # Track if we ever hit /watch
 
         # Task metrics
         self._task_start_time: float = 0.0
@@ -145,9 +152,12 @@ class LocatorOrchestrator:
     def _run_loop(self, task: str) -> None:
         """Main automation loop."""
         max_turns = self.cfg.orchestrator.max_turns
-        consecutive_failures = 0
-        last_url = ""
+        # Track distinct failure modes separately
+        no_action_turns = 0  # Model returned no actions
+        stuck_turns = 0  # Same URL, no progress
         action_feedback: list[str] = []
+        # Track if we ever hit a /watch URL for video tasks
+        visited_watch_url: bool = False
 
         for turn in range(1, max_turns + 1):
             self._task_turns = turn
@@ -159,6 +169,7 @@ class LocatorOrchestrator:
 
             url = ""
             title = ""
+            elements: list[dict] = []
 
             try:
                 # 1. Get page state (instant JS eval, no screenshot)
@@ -172,28 +183,39 @@ class LocatorOrchestrator:
                 element_list = self._format_elements(elements)
 
                 # 2. Check if task is complete via URL/content detection
-                if turn > 1 and last_url and self._is_task_complete(task, url, last_url):
+                if turn > 1 and self._is_task_complete(
+                    task, url, elements, visited_watch_url
+                ):
                     console.print("\n[bold green]✅ Task complete![/bold green]")
                     self._task_status = "complete"
                     self._task_final_url = url
                     break
 
-                # Detect same-URL loop (allow 3 turns for multi-step tasks)
-                if url == last_url:
-                    consecutive_failures += 1
-                    if consecutive_failures >= 4:
-                        console.print(
-                            "[yellow]  ⚠️ Stuck on same URL. Falling back to Vision mode.[/yellow]"
-                        )
-                        return self._fallback_to_vision(task, url, title)
+                # 3. Detect failure modes
+                if url and url == self._task_final_url:
+                    # Still on same page — but task_final_url is only set at end
+                    pass
+
+                if elements:
+                    # Page has elements — reset stuck counter
+                    stuck_turns = 0
                 else:
-                    consecutive_failures = 0
-                last_url = url
+                    stuck_turns += 1
+                    if stuck_turns >= 4:
+                        console.print(
+                            "[yellow]  ⚠️ Page has no interactive elements for 4 turns. Falling back.[/yellow]"
+                        )
+                        self._fallback_to_vision(task, url, title)
+                        break
 
                 console.print(f"  📍 {url} — {title}")
                 console.print(f"  📋 Found {element_count} interactive elements")
 
-                # 3. Build prompt with action feedback
+                # Track /watch visits for video tasks
+                if "/watch" in url:
+                    visited_watch_url = True
+
+                # 4. Build prompt with action feedback
                 feedback_text = ""
                 if action_feedback:
                     feedback_text = (
@@ -211,7 +233,7 @@ class LocatorOrchestrator:
                     feedback_text=feedback_text,
                 )
 
-                # 4. Get actions from Vision API (text-only, fast)
+                # 5. Get actions from Vision API (text-only, fast)
                 console.print("  🧠 Planning actions...")
                 result = self.vision.analyze_page(
                     url=url,
@@ -222,9 +244,14 @@ class LocatorOrchestrator:
                     prompt_override=prompt,
                 )
 
-                # 5. Execute actions using indexed CSS selectors
+                # Validate response shape
                 actions = result.get("actions", [])
-                done = result.get("done", False)
+                if not isinstance(actions, list):
+                    actions = []
+                    action_feedback.append(
+                        "⚠️ Model returned invalid actions (not a list)"
+                    )
+                done = bool(result.get("done", False))
                 reasoning = result.get("reasoning", "")
 
                 console.print(f"  💡 [dim]{reasoning}[/dim]")
@@ -242,7 +269,7 @@ class LocatorOrchestrator:
                     self._task_failed_actions += len(actions) - success_count
 
                     # Same-action loop detection
-                    action_key = json.dumps(actions, sort_keys=True)
+                    action_key = json.dumps(actions)
                     if action_key == self._last_action_key:
                         self._same_action_count += 1
                         if self._same_action_count >= 3:
@@ -258,27 +285,37 @@ class LocatorOrchestrator:
                         self._same_action_count = 0
 
                     if success_count > 0:
-                        consecutive_failures = 0
+                        no_action_turns = 0
                 else:
                     console.print(
                         "[yellow]  ⚠️ No actions returned from model[/yellow]"
                     )
-                    consecutive_failures += 1
+                    no_action_turns += 1
                     action_feedback.append(
                         "⚠️ No actions returned — try again with different element references"
                     )
+                    if no_action_turns >= 3:
+                        console.print(
+                            "[yellow]  ⚠️ Model returned no actions 3 turns in a row. Falling back.[/yellow]"
+                        )
+                        self._fallback_to_vision(task, url, title)
+                        break
 
-                # 6. Check done flag from model
-                if done and self._is_task_complete(task, url, last_url or url):
+                # 6. Check done flag from model (with URL verification)
+                if done and self._is_task_complete(
+                    task, url, elements, visited_watch_url
+                ):
                     console.print("\n[bold green]✅ Task complete![/bold green]")
                     self._task_status = "complete"
                     self._task_final_url = url
                     break
 
+                # Save current URL for next turn's completion check
+                self._task_final_url = url
+
             except Exception as e:
                 console.print(f"  ❌ [red]Error:[/red] {e}")
                 self._error_count += 1
-                consecutive_failures += 1
                 action_feedback.append(f"❌ Error: {e}")
 
                 if not self.browser.is_alive():
@@ -304,7 +341,6 @@ class LocatorOrchestrator:
             selector = el.get("selector", "")
             href = el.get("href", "")
 
-            # Build description
             parts = []
             if role:
                 parts.append(f"role={role}")
@@ -314,9 +350,9 @@ class LocatorOrchestrator:
             if el_type:
                 parts.append(f"type={el_type}")
             if href and "/watch" in href:
-                parts.append("🎥 video link")
+                parts.append("video link")
             if selector:
-                parts.append(f"→ {selector}")
+                parts.append(f"-> {selector}")
 
             desc = " ".join(parts) if parts else "unknown"
             lines.append(f"  [{i}] {desc}")
@@ -331,10 +367,15 @@ class LocatorOrchestrator:
     ) -> tuple[int, list[str]]:
         """Execute actions using indexed element references.
 
+        After each navigation action, re-resolves element indices against
+        the current DOM to handle stale selectors.
+
         Returns (success_count, feedback_list).
         """
         success = 0
         feedback: list[str] = []
+        # Working copy of elements — refreshed after navigation
+        current_elements = list(elements)
 
         for action in actions:
             act = action.get("action", "")
@@ -343,14 +384,14 @@ class LocatorOrchestrator:
             # Resolve element index to CSS selector
             selector: str | None = None
             el_info = ""
-            if element_idx is not None and 1 <= element_idx <= len(elements):
-                el = elements[element_idx - 1]
+            if element_idx is not None and 1 <= element_idx <= len(current_elements):
+                el = current_elements[element_idx - 1]
                 selector = el.get("selector") or el.get("css")
                 role = el.get("role", "")
                 name = el.get("name", "")
-                el_info = f'element [{element_idx}] ({role}: "{name}")'
-            else:
-                el_info = f'element index {element_idx} (out of range 1-{len(elements)})'
+                el_info = f"element [{element_idx}] ({role}: {name})"
+            elif element_idx is not None:
+                el_info = f"element index {element_idx} (out of range 1-{len(current_elements)})"
 
             try:
                 match act:
@@ -358,62 +399,63 @@ class LocatorOrchestrator:
                         if selector:
                             self.browser._page.click(selector, timeout=30000)
                             success += 1
-                            feedback.append(f"✅ Clicked {el_info}")
-                            try:
-                                self.browser._page.wait_for_load_state(
-                                    "domcontentloaded", timeout=10000
-                                )
-                            except Exception:
-                                pass
+                            feedback.append(f"OK Clicked {el_info}")
+                            self._wait_for_load()
+                            # Refresh elements after potential navigation
+                            current_elements = self.browser.get_interactive_elements()
                         else:
-                            # Fallback: try to find element by text/href
-                            feedback.append(f"❌ No selector for {el_info}")
+                            feedback.append(f"FAIL No selector for {el_info}")
 
                     case "click_first_video":
-                        # Special action: find and click the first video result
-                        # Looks for links with /watch in href
                         video_clicked = self._click_first_video()
                         if video_clicked:
                             success += 1
-                            feedback.append("✅ Clicked first video result")
+                            feedback.append("OK Clicked first video result")
+                            self._wait_for_load()
+                            current_elements = self.browser.get_interactive_elements()
                         else:
-                            feedback.append("❌ No video found on page")
+                            feedback.append("FAIL No video found on page")
 
                     case "fill":
                         text = action.get("text", "")
                         if selector:
                             self.browser._page.fill(selector, text, timeout=30000)
                             success += 1
-                            feedback.append(f"✅ Filled {el_info} with: {text[:40]}")
+                            feedback.append(f"OK Filled {el_info}")
                         else:
-                            feedback.append(f"❌ No selector for {el_info}")
+                            feedback.append(f"FAIL No selector for {el_info}")
 
                     case "press":
                         key = action.get("key", "Enter")
+                        if key not in _ALLOWED_KEYS:
+                            feedback.append(f"FAIL Key '{key}' not allowed")
+                            continue
                         self.browser._page.keyboard.press(key)
                         success += 1
-                        feedback.append(f"✅ Pressed {key}")
+                        feedback.append(f"OK Pressed {key}")
                         if key == "Enter":
-                            try:
-                                self.browser._page.wait_for_load_state(
-                                    "domcontentloaded", timeout=10000
-                                )
-                            except Exception:
-                                pass
+                            self._wait_for_load()
+                            current_elements = self.browser.get_interactive_elements()
 
                     case "scroll":
                         direction = action.get("direction", "down")
                         amount = action.get("amount", 500)
                         self.browser.scroll(direction, amount)
                         success += 1
-                        feedback.append(f"✅ Scrolled {direction} by {amount}px")
+                        feedback.append(f"OK Scrolled {direction} by {amount}px")
+                        current_elements = self.browser.get_interactive_elements()
 
                     case "navigate":
                         nav_url = action.get("url", "")
-                        if nav_url.startswith(("http://", "https://")):
+                        # Case-insensitive URL scheme check (C1: security)
+                        if nav_url.lower().startswith(("http://", "https://")):
                             self.browser.open(nav_url)
                             success += 1
-                            feedback.append(f"✅ Navigated to {nav_url[:60]}")
+                            feedback.append(f"OK Navigated to {nav_url[:60]}")
+                            self._wait_for_load()
+                            current_elements = self.browser.get_interactive_elements()
+                        else:
+                            feedback.append(f"FAIL Invalid URL: {nav_url[:60]}")
 
                     case "wait":
                         try:
@@ -421,9 +463,9 @@ class LocatorOrchestrator:
                                 "domcontentloaded", timeout=10000
                             )
                             success += 1
-                            feedback.append("✅ Waited for page load")
+                            feedback.append("OK Waited for page load")
                         except Exception:
-                            feedback.append("⚠️ Wait timed out")
+                            feedback.append("WARN Wait timed out")
 
                     case "type":
                         text = action.get("text", "")
@@ -431,18 +473,25 @@ class LocatorOrchestrator:
                             self.browser._page.click(selector, timeout=10000)
                             self.browser._page.keyboard.type(text)
                             success += 1
-                            feedback.append(f"✅ Typed: {text[:40]}")
+                            feedback.append(f"OK Typed into {el_info}")
                         else:
-                            feedback.append(f"❌ No selector for {el_info}")
+                            feedback.append(f"FAIL No selector for {el_info}")
 
                     case _:
-                        feedback.append(f"❌ Unknown action: {act}")
+                        feedback.append(f"FAIL Unknown action: {act}")
 
             except Exception as e:
                 logger.debug(f"Action failed: {action} - {e}")
-                feedback.append(f"❌ Failed {el_info}: {str(e)[:80]}")
+                feedback.append(f"FAIL {el_info}: {str(e)[:80]}")
 
         return success, feedback
+
+    def _wait_for_load(self) -> None:
+        """Wait for DOM content to load, silently handling timeout."""
+        try:
+            self.browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except Exception:
+            pass
 
     def _click_first_video(self) -> bool:
         """Find and click the first video result on a search results page.
@@ -450,94 +499,89 @@ class LocatorOrchestrator:
         Looks for <a> elements with /watch in href that are visible.
         """
         try:
-            # Find all video links and click the first visible one
             result = self.browser._page.evaluate("""() => {
                 const links = Array.from(document.querySelectorAll('a[href*="/watch"]'));
                 for (const link of links) {
                     const rect = link.getBoundingClientRect();
-                    if (rect.width > 50 && rect.height > 20) {
-                        // Check it's not in the sidebar/header (main content area)
-                        if (rect.top > 100) {
-                            return { href: link.href, text: link.textContent?.trim().slice(0, 80) };
-                        }
+                    if (rect.width > 50 && rect.height > 20 && rect.top > 100) {
+                        return { href: link.href, text: link.textContent?.trim().slice(0, 80) };
                     }
                 }
                 return null;
             }""")
 
             if result:
-                self.browser._page.click(f'a[href*="/watch"]:has-text("{result.get("text", "")[:30]}")', timeout=15000)
-                try:
-                    self.browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except Exception:
-                    pass
+                # Escape quotes in text to prevent selector injection
+                safe_text = result.get("text", "").replace('"', '\\"')[:30]
+                self.browser._page.click(
+                    f'a[href*="/watch"]:has-text("{safe_text}")', timeout=15000
+                )
+                self._wait_for_load()
                 return True
 
             # Fallback: click any /watch link
             self.browser._page.locator('a[href*="/watch"]').first.click(timeout=15000)
-            try:
-                self.browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
-            except Exception:
-                pass
+            self._wait_for_load()
             return True
         except Exception as e:
             logger.debug(f"_click_first_video failed: {e}")
             return False
 
-    def _is_task_complete(self, task: str, current_url: str, previous_url: str) -> bool:
+    def _is_task_complete(
+        self,
+        task: str,
+        current_url: str,
+        elements: list[dict],
+        visited_watch_url: bool,
+    ) -> bool:
         """Detect task completion by checking URL state changes.
 
-        Smart detection based on task keywords:
-        - If task mentions 'click video' or 'watch', need /watch URL (tracked via _visited_watch_url)
-        - If task mentions 'search', only complete when search results loaded
+        Args:
+            task: The original task description
+            current_url: Current page URL
+            elements: Current interactive elements (checked for emptiness)
+            visited_watch_url: Whether we ever visited a /watch URL
         """
-        if not current_url or not previous_url:
+        if not current_url:
             return False
 
         task_lower = task.lower()
 
-        # Track if we ever visit a /watch URL (YouTube redirects back to /)
-        if "/watch" in current_url:
-            self._visited_watch_url = True
-
         # Task asks to click/watch a video
-        if any(kw in task_lower for kw in ["click", "watch", "first video", "open"]):
-            # If we ever visited /watch, task is done (YouTube redirects back)
-            if self._visited_watch_url:
-                # But only if we're now on a different page from the initial search
-                if current_url != previous_url or self._visited_watch_url:
-                    return True
-            # Still on search results — not done yet
-            if "/results" in current_url:
-                return False
-            # Direct /watch URL
+        if any(kw in task_lower for kw in ["click", "watch", "first video"]):
             if "/watch" in current_url:
                 return True
+            if visited_watch_url and current_url != self._initial_url:
+                # We visited /watch and are now on a different page = done
+                # (YouTube redirects /watch back to / or search results)
+                return True
+            if "/results" in current_url:
+                return False  # Still on search results
 
-        # Task mentions search — check if search results loaded
+        # Task mentions search
         if "search" in task_lower:
             if "/results" in current_url or "search" in current_url.lower():
                 return True
             if "/watch" in current_url:
                 return True
 
-        # Generic: URL changed significantly
-        try:
-            parsed_current = urlparse(current_url)
-            parsed_previous = urlparse(previous_url)
-
-            if parsed_current.path != parsed_previous.path:
-                return True
-            if parsed_current.query != parsed_previous.query and parsed_current.query:
-                return True
-        except Exception:
-            pass
+        # Generic: URL changed significantly from initial
+        if self._initial_url and current_url != self._initial_url:
+            try:
+                parsed_current = urlparse(current_url)
+                parsed_initial = urlparse(self._initial_url)
+                if parsed_current.path != parsed_initial.path:
+                    return True
+                if parsed_current.query != parsed_initial.query and parsed_current.query:
+                    return True
+            except Exception:
+                pass
 
         return False
 
     def _fallback_to_vision(self, task: str, url: str, title: str) -> None:
         """Fallback to Vision-based approach when locators fail."""
-        console.print("[yellow]  🔄 Falling back to Vision API...[/yellow]")
+        console.print("[yellow]  Falling back to Vision API...[/yellow]")
         try:
             shot_path = f"/tmp/vision-browser-fallback-{int(time.time())}.png"
             shot = self.browser.screenshot(shot_path)
@@ -559,24 +603,33 @@ class LocatorOrchestrator:
             actions = result.get("actions", [])
 
             if actions:
-                console.print(f"  ⚡ Executing {len(actions)} action(s) via Vision API...")
+                console.print(
+                    f"  Executing {len(actions)} action(s) via Vision API..."
+                )
                 executed = self.browser.execute_batch(actions)
-                console.print(f"  ✅ {executed}/{len(actions)} succeeded")
+                console.print(f"  {executed}/{len(actions)} succeeded")
+                # Update task status since fallback ran
+                self._task_final_url = self.browser.get_url() or url
+                if executed > 0:
+                    self._task_status = "complete"
+            else:
+                self._task_status = "max_turns_reached"
         except Exception as e:
             logger.debug(f"Vision fallback failed: {e}")
+            self._task_status = "max_turns_reached"
 
     def _print_summary(self) -> None:
         """Print task summary."""
         elapsed = (
             time.monotonic() - self._task_start_time if self._task_start_time else 0
         )
-        status_icon = {"complete": "✅", "failed": "❌"}.get(
-            self._task_status, "⏱️"
+        status_icon = {"complete": "OK", "failed": "FAIL"}.get(
+            self._task_status, "TIMEOUT"
         )
 
         lines = [
             "",
-            "── Task Summary " + "─" * 30,
+            "-- Task Summary " + "-" * 30,
             f"  Status: {status_icon} {self._task_status}",
             f"  Turns: {self._task_turns}",
             f"  Actions: {self._task_total_actions} ({self._task_succeeded_actions} succeeded, {self._task_failed_actions} failed)",
@@ -584,7 +637,7 @@ class LocatorOrchestrator:
         ]
         if self._task_final_url:
             lines.append(f"  Final URL: {self._task_final_url}")
-        lines.append("─" * 50)
+        lines.append("-" * 50)
 
         for line in lines:
             console.print(line)
