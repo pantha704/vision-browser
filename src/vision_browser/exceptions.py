@@ -33,3 +33,29 @@ class RateLimitError(VisionAPIError):
 
 class TimeoutError(VisionBrowserError):
     """Operation timed out."""
+
+
+class ModelResponseError(VisionAPIError):
+    """Model response could not be parsed as valid JSON.
+
+    Attributes:
+        raw_response: The raw text returned by the model.
+        expected_schema: The JSON schema the model was expected to match.
+        context: Additional debugging context.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        raw_response: str = "",
+        expected_schema: dict | None = None,
+    ):
+        super().__init__(message)
+        self.raw_response = raw_response
+        self.expected_schema = expected_schema
+        self.context: dict[str, str] = {}
+
+    def with_context(self, **kwargs) -> "ModelResponseError":
+        """Add debugging context and return self for chaining."""
+        self.context.update(kwargs)
+        return self

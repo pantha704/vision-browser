@@ -9,7 +9,29 @@ import shutil
 import sys
 from pathlib import Path
 
-from rich.console import Console
+# CLI-04: Graceful Rich fallback
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    HAS_RICH = True
+except ImportError:
+    HAS_RICH = False
+
+
+class _FallbackConsole:
+    """Basic console that strips Rich markup when Rich is not available."""
+    def print(self, text: str = "") -> None:
+        import re
+        clean = re.sub(r'\[/?[^\]]*\]', '', str(text))
+        print(clean)
+
+
+if not HAS_RICH:
+    Console = _FallbackConsole  # type: ignore
+    Panel = None  # type: ignore
+
+console = Console()
+
 
 from vision_browser.config import AppConfig
 from vision_browser.exceptions import (
@@ -18,7 +40,12 @@ from vision_browser.exceptions import (
     VisionBrowserError,
 )
 
-console = Console()
+
+def _print_user_error(message: str, suggestion: str = "") -> None:
+    """CLI-02: Print a human-readable error with optional suggestion."""
+    console.print(f"[bold red]Error:[/bold red] {message}")
+    if suggestion:
+        console.print(f"  [dim]💡 {suggestion}[/dim]")
 
 
 def _setup_logging(verbose: bool = False) -> None:
@@ -110,9 +137,9 @@ def main() -> None:
 
     # Check agent-browser availability
     if not args.desktop and shutil.which("agent-browser") is None:
-        console.print(
-            "[bold red]Error:[/bold red] agent-browser not found on PATH.\n"
-            "  Install: npm i -g agent-browser && agent-browser install"
+        _print_user_error(
+            "agent-browser not found on PATH.",
+            "Install: npm i -g agent-browser && agent-browser install",
         )
         sys.exit(1)
 
@@ -139,26 +166,35 @@ def main() -> None:
     try:
         from vision_browser.orchestrator import Orchestrator
         from vision_browser.fast_orchestrator import FastOrchestrator
-        
+
         if args.fast:
             console.print("[bold blue]⚡ Using fast Playwright orchestrator[/bold blue]")
             orchestrator = FastOrchestrator(cfg)
             orchestrator.run(args.task, url=args.url)
+            # CLI-03: Print task summary
+            if hasattr(orchestrator, 'print_task_summary'):
+                orchestrator.print_task_summary()
         else:
             orchestrator = Orchestrator(cfg)
             orchestrator.run(args.task, url=args.url, desktop_mode=args.desktop)
-        
+
         # Clean shutdown for fast orchestrator
         if args.fast and hasattr(orchestrator, 'close'):
             orchestrator.close()
     except ConfigError as e:
-        console.print(f"[bold red]Config error:[/bold red] {e}")
+        _print_user_error(
+            f"Configuration error: {e}",
+            "Check your config.yaml file and environment variables (NVIDIA_API_KEY, GROQ_API_KEY).",
+        )
         sys.exit(1)
     except BrowserNotInstalledError as e:
-        console.print(f"[bold red]Browser error:[/bold red] {e}")
+        _print_user_error(
+            f"Browser not available: {e}",
+            "Install Playwright browsers: playwright install chromium",
+        )
         sys.exit(1)
     except VisionBrowserError as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
+        _print_user_error(str(e), "Check your configuration and network connection.")
         sys.exit(1)
     except KeyboardInterrupt:
         console.print("\n[yellow]⏹️ Interrupted[/yellow]")

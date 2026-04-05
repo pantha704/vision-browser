@@ -66,7 +66,10 @@ class OrchestratorConfig(BaseModel):
 
     max_turns: int = Field(default=20, ge=1, le=100)
     batch_actions: bool = True
-    diff_mode: bool = False
+    diff_mode: bool = False  # Alias for auto_diff_screenshots
+    auto_diff_screenshots: bool = False  # Enable differential screenshot capture
+    diff_threshold: float = Field(default=0.01, ge=0.0, le=1.0)  # Pixel diff ratio threshold
+    diff_max_retain: int = Field(default=10, ge=1, le=100)  # Max diffs to keep per session
     max_prompt_elements: int = Field(default=30, ge=5, le=100)
     retry_attempts: int = Field(default=3, ge=1, le=10)
     retry_backoff_base: float = Field(default=1.0, ge=0.1, le=10.0)

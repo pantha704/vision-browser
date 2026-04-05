@@ -15,6 +15,7 @@ from vision_browser.config import AppConfig, DesktopConfig, VisionConfig
 from vision_browser.desktop import DesktopController
 from vision_browser.exceptions import (
     ActionExecutionError,
+    ModelResponseError,
     RateLimitError,
     TimeoutError,
     VisionAPIError,
@@ -111,24 +112,18 @@ class TestVisionClientNIM:
                 client.analyze("/tmp/test.png", "test prompt")
 
     def test_nim_analyze_http_error(self, httpx_mock: pytest_httpx.HTTPXMock):
-        """Test NIM API with an httpx.RequestError that has no response.
+        """Test NIM API with an httpx.ConnectError that has no .response attribute.
 
-        Note: The source code's except httpx.HTTPError block checks
-        e.response.status_code, but some httpx errors (ConnectError,
-        RemoteProtocolError) don't have .response. This triggers an
-        AttributeError which propagates up. This test documents the
-        actual behavior.
+        After bug fix: HTTPStatusError (has .response) is caught separately,
+        and generic HTTPError (no .response) is caught by the fallback handler.
         """
         cfg = VisionConfig()
         client = VisionClient(cfg)
 
-        # httpx_mock with exception that lacks .response triggers AttributeError
-        # in the source code's e.response check. The AttributeError propagates.
         httpx_mock.add_exception(httpx.ConnectError("connection refused"))
 
         with patch.object(client, "_encode_image", return_value="fake_b64"):
-            # Actual behavior: AttributeError propagates (source code bug)
-            with pytest.raises(AttributeError, match="response"):
+            with pytest.raises(VisionAPIError, match="NIM HTTP error"):
                 client._nim_analyze("/tmp/test.png", "test prompt")
 
     def test_nim_analyze_non_200(self, httpx_mock: pytest_httpx.HTTPXMock):
@@ -258,7 +253,7 @@ class TestVisionClientGroq:
 
 class TestMalformedResponses:
     def test_nim_prose_response_raises(self, httpx_mock: pytest_httpx.HTTPXMock):
-        """Mock NIM returns prose, _extract_json wraps it, _nim_analyze returns dict."""
+        """Mock NIM returns prose, _validate_json_response raises ModelResponseError."""
         cfg = VisionConfig()
         client = VisionClient(cfg)
 
@@ -270,13 +265,11 @@ class TestMalformedResponses:
         )
 
         with patch.object(client, "_encode_image", return_value="fake_b64"):
-            result = client._nim_analyze("/tmp/test.png", "test prompt")
-            # _extract_json falls back to safe dict
-            assert result["done"] is False
-            assert "login form" in result["reasoning"]
+            with pytest.raises(ModelResponseError, match="could not be parsed as JSON"):
+                client._nim_analyze("/tmp/test.png", "test prompt")
 
     def test_nim_partial_json_raises(self, httpx_mock: pytest_httpx.HTTPXMock):
-        """Mock NIM returns partial JSON, verify _extract_json fallback."""
+        """Mock NIM returns partial JSON, _validate_json_response raises ModelResponseError."""
         cfg = VisionConfig()
         client = VisionClient(cfg)
 
@@ -288,10 +281,8 @@ class TestMalformedResponses:
         )
 
         with patch.object(client, "_encode_image", return_value="fake_b64"):
-            result = client._nim_analyze("/tmp/test.png", "test prompt")
-            # Partial JSON triggers _extract_json stack-based extraction,
-            # which falls back to safe dict
-            assert isinstance(result, dict)
+            with pytest.raises(ModelResponseError, match="could not be parsed as JSON"):
+                client._nim_analyze("/tmp/test.png", "test prompt")
 
     def test_nim_markdown_response_parsed(self, httpx_mock: pytest_httpx.HTTPXMock):
         """Mock NIM returns ```json\\n{...}\\n```, verify _extract_json extracts correctly."""

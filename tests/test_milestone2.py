@@ -63,7 +63,7 @@ class TestMCPTools:
 
     def test_all_tools_count(self):
         """All expected tools are defined."""
-        assert len(ALL_TOOLS) == 6
+        assert len(ALL_TOOLS) == 7  # 6 original + health
 
 
 class TestMCPServer:
@@ -71,10 +71,11 @@ class TestMCPServer:
         """Server lists all tools."""
         server = MCPServer()
         tools = server.list_tools()
-        assert len(tools) == 6
+        assert len(tools) == 7  # 6 original + health
         names = [t["name"] for t in tools]
         assert "navigate" in names
         assert "screenshot" in names
+        assert "health" in names
 
     def test_call_unknown_tool(self):
         """Unknown tool returns error."""

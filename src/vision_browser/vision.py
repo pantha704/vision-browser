@@ -14,6 +14,7 @@ from groq import Groq
 
 from vision_browser.config import AppConfig, VisionConfig
 from vision_browser.exceptions import (
+    ModelResponseError,
     RateLimitError,
     TimeoutError,
     VisionAPIError,
@@ -42,6 +43,29 @@ class VisionClient:
 
             try:
                 return self._nim_analyze(image_path, prompt, schema)
+            except ModelResponseError as e:
+                # Model returned invalid JSON -- retry with stricter prompt
+                if attempt < self._max_retries:
+                    stricter_prompt = self._build_stricter_prompt(prompt, schema, attempt)
+                    logger.warning(f"JSON parse failed on attempt {attempt}, retrying with stricter prompt")
+                    try:
+                        return self._nim_analyze(image_path, stricter_prompt, schema)
+                    except ModelResponseError:
+                        pass  # Fall through to fallback
+                # Try Groq as fallback
+                try:
+                    return self._groq_analyze(image_path, prompt, schema)
+                except Exception as ge:
+                    logger.warning(f"Groq fallback also failed: {ge}")
+
+                if attempt == self._max_retries:
+                    raise VisionAPIError(
+                        f"All vision API attempts exhausted. Last error: model failed to produce valid JSON after retries"
+                    )
+
+                backoff = self._backoff_base * (2 ** (attempt - 1))
+                logger.info(f"Retrying in {backoff:.1f}s...")
+                time.sleep(backoff)
             except Exception as e:
                 logger.warning(f"NIM attempt {attempt} failed: {e}")
                 if attempt < self._max_retries:
@@ -140,7 +164,7 @@ class VisionClient:
         text = response.choices[0].message.content
         if text is None:
             raise VisionAPIError("Groq returned empty response")
-        return self._extract_json(text.strip())
+        return self._validate_json_response(text.strip(), schema)
 
     def _nim_analyze(self, image_path: str, prompt: str, schema: dict | None = None) -> dict:
         """Call NVIDIA NIM vision API via NVCF with optional JSON schema."""
@@ -186,9 +210,13 @@ class VisionClient:
             )
         except httpx.TimeoutException as e:
             raise TimeoutError(f"NIM API timed out after 120s: {e}") from e
-        except httpx.HTTPError as e:
-            if e.response is not None and e.response.status_code == 429:  # type: ignore[union-attr]
+        except httpx.HTTPStatusError as e:
+            # HTTPStatusError always has .response
+            if e.response.status_code == 429:
                 raise RateLimitError(f"NIM rate limited: {e}") from e
+            raise VisionAPIError(f"NIM HTTP error {e.response.status_code}: {e}") from e
+        except httpx.HTTPError as e:
+            # Other HTTPError subclasses (ConnectError, etc.) may not have .response
             raise VisionAPIError(f"NIM HTTP error: {e}") from e
 
         if resp.status_code != 200:
@@ -204,7 +232,7 @@ class VisionClient:
         text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not text:
             raise VisionAPIError("NIM returned empty response")
-        return self._extract_json(text.strip())
+        return self._validate_json_response(text.strip(), schema)
 
     @staticmethod
     def _extract_json(text: str) -> dict:
@@ -247,6 +275,78 @@ class VisionClient:
         # 4. Last resort: wrap text in a safe structure
         logger.warning(f"Could not extract JSON from model response. Wrapping text.")
         return {"actions": [], "done": False, "reasoning": text.strip()}
+
+    def _validate_json_response(
+        self, text: str, schema: dict | None = None
+    ) -> dict:
+        """Validate that model text can be extracted as valid JSON.
+
+        Args:
+            text: Raw model response text.
+            schema: Expected JSON schema for context in error reporting.
+
+        Returns:
+            Extracted JSON dict.
+
+        Raises:
+            ModelResponseError: If text cannot be parsed as JSON.
+        """
+        if not text:
+            raise ModelResponseError(
+                "Model returned empty response",
+                raw_response=text,
+                expected_schema=schema,
+            ).with_context(stage="empty_response")
+
+        # Try to parse as JSON directly first
+        stripped = text.strip()
+        if stripped.startswith("{"):
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                pass
+
+        # Try _extract_json which handles markdown blocks and brace extraction
+        result = self._extract_json(text)
+
+        # _extract_json returns a safe wrapper when it can't find JSON.
+        # The safe wrapper has reasoning that matches the original text closely.
+        # Detect this by checking if reasoning is essentially the raw input text
+        # (i.e., no JSON-like structure was found at all).
+        reasoning = result.get("reasoning", "")
+        if (
+            result.get("actions") == []
+            and result.get("done") is False
+            and reasoning
+            and reasoning.strip() == text.strip()
+        ):
+            # The reasoning is the entire input text -- extraction failed
+            raise ModelResponseError(
+                "Model response could not be parsed as JSON",
+                raw_response=text[:1000],
+                expected_schema=schema,
+            ).with_context(stage="parse_fallback", model_text_preview=text[:200])
+
+        return result
+
+    @staticmethod
+    def _build_stricter_prompt(original_prompt: str, schema: dict | None, attempt: int) -> str:
+        """Build a progressively stricter prompt for JSON retry.
+
+        Args:
+            original_prompt: The original prompt text.
+            schema: The expected JSON schema.
+            attempt: Current retry attempt number (1-based).
+
+        Returns:
+            New prompt with stricter JSON requirements.
+        """
+        strictness = {
+            1: "IMPORTANT: Your previous response was not valid JSON. You MUST respond with ONLY a JSON object, nothing else.",
+            2: "CRITICAL: You MUST respond with ONLY valid JSON. No text before or after the JSON object. No markdown. No explanation. Start with { and end with }.",
+        }
+        prefix = strictness.get(attempt, strictness[2])
+        return f"{prefix}\n\n{original_prompt}"
 
     @staticmethod
     def _encode_image(path: str | Path) -> str:
