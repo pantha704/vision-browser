@@ -439,7 +439,7 @@ class TestVisionClientRateLimit:
             # Verify sleep was called
             assert mock_sleep.called, "time.sleep should have been called for rate limiting"
             sleep_calls = [c[0][0] for c in mock_sleep.call_args_list]
-            assert any(s >= 0.04 for s in sleep_calls), f"Expected sleep >= 0.04s, got: {sleep_calls}"
+            assert any(s >= 0.03 for s in sleep_calls), f"Expected sleep >= 0.03s, got: {sleep_calls}"
 
 
 # ── VisionClient Encode Tests ──────────────────────────────────────

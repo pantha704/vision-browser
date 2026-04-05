@@ -8,7 +8,7 @@ import os
 import pytest
 
 from vision_browser.browser import _validate_url, _element_to_ref
-from vision_browser.config import AppConfig, BrowserConfig, OrchestratorConfig, VisionConfig
+from vision_browser.config import AppConfig, BrowserConfig, DesktopConfig, OrchestratorConfig, VisionConfig
 from vision_browser.exceptions import (
     ActionExecutionError,
     ConfigError,
@@ -91,6 +91,58 @@ class TestConfig:
         cfg = VisionConfig()
         with pytest.raises(ConfigError, match="NVIDIA_API_KEY"):
             _ = cfg.nim_api_key
+
+    def test_viewport_upper_validation(self):
+        with pytest.raises(Exception):
+            BrowserConfig(viewport=(8000, 5000))
+
+    def test_desktop_config_defaults(self):
+        cfg = DesktopConfig()
+        assert cfg.screenshot_cmd == "scrot"
+        assert cfg.type_delay_ms == 20
+
+    def test_desktop_config_custom(self):
+        cfg = DesktopConfig(screenshot_cmd="gnome-screenshot", type_delay_ms=50)
+        assert cfg.screenshot_cmd == "gnome-screenshot"
+        assert cfg.type_delay_ms == 50
+
+    def test_orchestrator_defaults(self):
+        cfg = OrchestratorConfig()
+        assert cfg.max_turns == 20
+        assert cfg.batch_actions is True
+        assert cfg.diff_mode is False
+        assert cfg.max_prompt_elements == 30
+        assert cfg.retry_attempts == 3
+        assert cfg.retry_backoff_base == 1.0
+        assert cfg.rate_limit_delay == 0.5
+
+    def test_orchestrator_custom(self):
+        cfg = OrchestratorConfig(
+            max_turns=50, batch_actions=False, diff_mode=True,
+            max_prompt_elements=50, retry_attempts=5,
+            retry_backoff_base=2.0, rate_limit_delay=1.0,
+        )
+        assert cfg.max_turns == 50
+        assert cfg.batch_actions is False
+        assert cfg.diff_mode is True
+
+    def test_from_yaml_loads_existing_config(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("vision:\n  provider: groq\n  groq_model: test-model\n")
+        cfg = AppConfig.from_yaml(str(config_file))
+        assert cfg.vision.provider == "groq"
+        assert cfg.vision.groq_model == "test-model"
+
+    def test_from_yaml_fallback_no_file(self):
+        cfg = AppConfig.from_yaml("/nonexistent/config.yaml")
+        assert isinstance(cfg, AppConfig)
+        assert cfg.vision.provider == "nim"
+
+    def test_from_yaml_empty_file(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("")
+        cfg = AppConfig.from_yaml(str(config_file))
+        assert isinstance(cfg, AppConfig)
 
 
 # ── URL Validation ─────────────────────────────────────────────────
