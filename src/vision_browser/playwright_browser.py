@@ -23,6 +23,7 @@ from vision_browser.exceptions import (
     BrowserNotInstalledError,
     TimeoutError,
 )
+from vision_browser.session import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,9 @@ class PlaywrightBrowser:
         self._page: Page | None = None
         self._badge_map: dict[int, str] = {}  # badge_num -> selector
         self._badge_cache: list[dict] = []  # Raw badge data
+        self._session_manager = SessionManager() if self.cfg.session_name else None
         self._connect()
+        self._restore_session()
 
     def _connect(self) -> None:
         """Connect to browser via CDP or launch new instance."""
@@ -114,8 +117,36 @@ class PlaywrightBrowser:
         except PlaywrightError as e:
             raise BrowserError(f"Navigation failed: {e}") from e
 
+    def _restore_session(self) -> None:
+        """Restore session from disk if session_name is set."""
+        if not self._session_manager or not self.cfg.session_name:
+            return
+        if self._context is None:
+            return
+
+        restored = self._session_manager.restore_session(self._context, self.cfg.session_name)
+        if restored:
+            logger.info(f"Restored session: {self.cfg.session_name}")
+        else:
+            logger.debug(f"No session found: {self.cfg.session_name}")
+
+    def save_session(self) -> None:
+        """Save current session to disk."""
+        if not self._session_manager or not self.cfg.session_name:
+            return
+        if self._context is None:
+            return
+
+        try:
+            self._session_manager.save_session(self._context, self.cfg.session_name)
+        except Exception as e:
+            logger.warning(f"Failed to save session: {e}")
+
     def close(self) -> None:
         """Close browser. Skip if using CDP (user controls the browser)."""
+        # Save session before closing
+        self.save_session()
+
         if self.cfg.cdp_url:
             return
         try:

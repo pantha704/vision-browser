@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import shutil
 import sys
@@ -116,6 +117,7 @@ def main() -> None:
         sys.exit(1)
 
     # Load and validate config
+    cfg = None
     try:
         cfg = AppConfig.from_yaml(args.config)
     except FileNotFoundError:
@@ -123,6 +125,9 @@ def main() -> None:
         cfg = AppConfig()
     except Exception as e:
         console.print(f"[bold red]Config error:[/bold red] {e}")
+        sys.exit(1)
+
+    if cfg is None:
         sys.exit(1)
 
     # CLI overrides
