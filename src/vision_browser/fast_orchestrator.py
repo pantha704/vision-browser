@@ -12,6 +12,7 @@ from rich.panel import Panel
 
 from vision_browser.config import AppConfig
 from vision_browser.playwright_browser import PlaywrightBrowser
+from vision_browser.screenshot_manager import ScreenshotManager
 from vision_browser.vision import VisionClient
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ ELEMENTS:
 Return ONLY JSON.
 """
 
-SCREENSHOT_PATH = Path("/tmp/vision-browser-screenshot.png")
+# Global constant removed - now managed by ScreenshotManager
 
 # JSON schema for structured output
 ACTION_SCHEMA = {
@@ -81,7 +82,7 @@ ACTION_SCHEMA = {
 class FastOrchestrator:
     """Fast orchestrator using Playwright + DOM + Vision."""
 
-    def __init__(self, cfg: AppConfig):
+    def __init__(self, cfg: AppConfig, keep_screenshots: bool = False):
         self.cfg = cfg
         self.browser = PlaywrightBrowser(cfg.browser)
         self.vision = VisionClient(cfg.vision, {
@@ -89,17 +90,24 @@ class FastOrchestrator:
             "retry_backoff_base": cfg.orchestrator.retry_backoff_base,
             "rate_limit_delay": cfg.orchestrator.rate_limit_delay,
         })
+        self.screenshots = ScreenshotManager(keep=keep_screenshots, max_retain=20)
         self._shutdown_requested = False
         self._register_signals()
 
     def _register_signals(self) -> None:
-        """Register signal handlers for graceful shutdown."""
+        """Register signal handlers for graceful shutdown and screenshot cleanup."""
         def _handler(signum: int, _frame: object) -> None:
             logger.info(f"Signal {signum} received, shutting down")
             self._shutdown_requested = True
+            self.screenshots.cleanup()
 
         signal.signal(signal.SIGINT, _handler)
         signal.signal(signal.SIGTERM, _handler)
+
+    def close(self) -> None:
+        """Clean shutdown with screenshot cleanup."""
+        self.browser.close()
+        self.screenshots.cleanup()
 
     def run(self, task: str, url: str | None = None) -> None:
         """Execute automation loop."""
@@ -115,10 +123,11 @@ class FastOrchestrator:
                 self.browser.open(url)
             except Exception as e:
                 console.print(f"[red]Navigation failed: {e}[/red]")
-                self.browser.close()
+                self.close()
                 return
 
         self._run_loop(task)
+        self.close()
 
     def _run_loop(self, task: str) -> None:
         """Main automation loop."""
@@ -137,7 +146,8 @@ class FastOrchestrator:
             try:
                 # 1. Screenshot + inject badges + extract a11y tree
                 console.print("  📸 Capturing screenshot + injecting badges...")
-                shot = self.browser.screenshot(str(SCREENSHOT_PATH))
+                shot_path = self.screenshots.next_path()
+                shot = self.browser.screenshot(str(shot_path))
                 
                 url = shot.get("url", "") or self.browser.get_url()
                 title = shot.get("title", "") or self.browser.get_title()
@@ -163,8 +173,8 @@ class FastOrchestrator:
                 # 3. Send to vision model with structured output schema
                 console.print("  🧠 Sending to vision model...")
                 result = self.vision.analyze(
-                    str(SCREENSHOT_PATH), 
-                    prompt, 
+                    str(self.screenshots.current_path),
+                    prompt,
                     schema=ACTION_SCHEMA
                 )
 
@@ -237,7 +247,8 @@ class FastOrchestrator:
     def _verify_completion(self, task: str) -> bool:
         """Verify task is actually complete."""
         try:
-            shot = self.browser.screenshot(str(SCREENSHOT_PATH))
+            shot_path = self.screenshots.next_path()
+            shot = self.browser.screenshot(str(shot_path))
             url = shot.get("url", "")
             title = shot.get("title", "")
             element_list = self._build_element_list(shot.get("legend", []), self.cfg.orchestrator.max_prompt_elements)
@@ -248,7 +259,7 @@ class FastOrchestrator:
                 f"Elements: {element_list}\n\n"
                 f'Is task complete? Return ONLY JSON: {{"complete": true/false, "reasoning": "why"}}'
             )
-            result = self.vision.analyze(str(SCREENSHOT_PATH), verify_prompt)
+            result = self.vision.analyze(str(shot_path), verify_prompt)
             is_complete = result.get("complete", False)
             logger.info(f"Verification: complete={is_complete}")
             return bool(is_complete)
@@ -257,5 +268,6 @@ class FastOrchestrator:
             return True
 
     def close(self) -> None:
-        """Clean shutdown."""
+        """Clean shutdown with screenshot cleanup."""
         self.browser.close()
+        self.screenshots.cleanup()
