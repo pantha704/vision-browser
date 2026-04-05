@@ -71,23 +71,23 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MODEL-01 | TBD | Not started |
-| MODEL-02 | TBD | Not started |
-| MODEL-03 | TBD | Not started |
-| MODEL-04 | TBD | Not started |
-| DIFF-01 | TBD | Not started |
-| DIFF-02 | TBD | Not started |
-| DIFF-03 | TBD | Not started |
-| DIFF-04 | TBD | Not started |
-| MCP-01 | TBD | Not started |
-| MCP-02 | TBD | Not started |
-| MCP-03 | TBD | Not started |
-| MCP-04 | TBD | Not started |
-| CLI-01 | TBD | Not started |
-| CLI-02 | TBD | Not started |
-| CLI-03 | TBD | Not started |
-| CLI-04 | TBD | Not started |
-| TEST-01 | TBD | Not started |
-| TEST-02 | TBD | Not started |
-| TEST-03 | TBD | Not started |
-| TEST-04 | TBD | Not started |
+| MODEL-01 | Phase 11 | Not started |
+| MODEL-02 | Phase 11 | Not started |
+| MODEL-03 | Phase 11 | Not started |
+| MODEL-04 | Phase 11 | Not started |
+| DIFF-01 | Phase 12 | Not started |
+| DIFF-02 | Phase 12 | Not started |
+| DIFF-03 | Phase 12 | Not started |
+| DIFF-04 | Phase 12 | Not started |
+| MCP-01 | Phase 13 | Not started |
+| MCP-02 | Phase 13 | Not started |
+| MCP-03 | Phase 13 | Not started |
+| MCP-04 | Phase 13 | Not started |
+| CLI-01 | Phase 14 | Not started |
+| CLI-02 | Phase 14 | Not started |
+| CLI-03 | Phase 14 | Not started |
+| CLI-04 | Phase 14 | Not started |
+| TEST-01 | Phase 10 | Not started |
+| TEST-02 | Phase 14 | Not started |
+| TEST-03 | Phase 14 | Not started |
+| TEST-04 | Phase 10-14 | Not started |
