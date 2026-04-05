@@ -399,3 +399,165 @@ class VisionClient:
         """Base64-encode an image file."""
         with open(path, "rb") as f:
             return base64.b64encode(f.read()).decode()
+
+    def analyze_page(
+        self,
+        *,
+        url: str,
+        title: str,
+        elements: list[dict],
+        task: str,
+        system_prompt: str,
+        prompt_override: str | None = None,
+    ) -> dict:
+        """Analyze page state and return actions WITHOUT a screenshot.
+
+        This is much faster than analyze() because it doesn't require:
+        - Taking a screenshot
+        - Encoding an image
+        - Sending image data to the API
+
+        It works by sending just the page state (URL, title, accessibility tree)
+        to the model as text-only context.
+
+        Args:
+            url: Current page URL
+            title: Page title
+            elements: List of interactive elements from accessibility tree
+            task: User's task description
+            system_prompt: System prompt with action format instructions
+            prompt_override: Optional full prompt to use instead of default
+
+        Returns:
+            Dict with actions, done flag, and reasoning
+        """
+        for attempt in range(1, self._max_retries + 1):
+            self._apply_rate_limit()
+
+            try:
+                return self._circuit_breaker.call(
+                    lambda: self._nim_analyze_page(
+                        url=url,
+                        title=title,
+                        elements=elements,
+                        task=task,
+                        system_prompt=system_prompt,
+                        prompt_override=prompt_override,
+                    )
+                )
+            except CircuitOpenError as e:
+                logger.warning(f"Circuit breaker open: {e}")
+                raise VisionAPIError(
+                    f"Circuit breaker open: {e}"
+                ) from e
+            except ModelResponseError:
+                if attempt < self._max_retries:
+                    logger.warning(
+                        f"JSON parse failed on attempt {attempt}, retrying"
+                    )
+                    continue
+                    
+                if attempt == self._max_retries:
+                    raise VisionAPIError(
+                        "All vision API attempts exhausted. Last error: model failed to produce valid JSON after retries"
+                    )
+                    
+                backoff = self._backoff_base * (2 ** (attempt - 1))
+                logger.info(f"Retrying in {backoff:.1f}s...")
+                time.sleep(backoff)
+            except Exception as e:
+                logger.warning(f"NIM attempt {attempt} failed: {e}")
+                if attempt == self._max_retries:
+                    raise VisionAPIError(
+                        f"All vision API attempts exhausted. Last error: {e}"
+                    ) from e
+                    
+                backoff = self._backoff_base * (2 ** (attempt - 1))
+                logger.info(f"Retrying in {backoff:.1f}s...")
+                time.sleep(backoff)
+                
+        raise VisionAPIError(
+            "Unexpected: analyze_page loop exited without returning or raising"
+        )
+
+    def _nim_analyze_page(
+        self,
+        *,
+        url: str,
+        title: str,
+        elements: list[dict],
+        task: str,
+        system_prompt: str,
+        prompt_override: str | None = None,
+    ) -> dict:
+        """Call NIM API with page state (no image)."""
+        # Build the prompt from page state
+        user_prompt = prompt_override
+        if user_prompt is None:
+            element_lines = []
+            for i, el in enumerate(elements[:30], 1):
+                role = el.get("role", "")
+                name = el.get("name", "")
+                if name:
+                    element_lines.append(f"  [{i}] role={role}, name={name}")
+                else:
+                    element_lines.append(f"  [{i}] role={role}")
+            if len(elements) > 30:
+                element_lines.append(f"  ... and {len(elements) - 30} more")
+
+            element_text = "\n".join(element_lines) if element_lines else "  (none)"
+
+            user_prompt = (
+                f"TASK: {task}\n\n"
+                f"CURRENT PAGE:\n"
+                f"URL: {url}\n"
+                f"TITLE: {title}\n\n"
+                f"INTERACTIVE ELEMENTS:\n{element_text}\n\n"
+                f"Return ONLY JSON with actions to accomplish the task."
+            )
+        
+        try:
+            resp = httpx.post(
+                f"https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/{self.cfg.nim_function_id}",
+                headers={
+                    "Authorization": f"Bearer {self.cfg.nim_api_key}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "max_tokens": self.cfg.nim_max_tokens,
+                    "temperature": 0.1,
+                },
+                timeout=60,
+            )
+        except httpx.TimeoutException as e:
+            raise TimeoutError(f"NIM API timed out after 60s: {e}") from e
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise RateLimitError(f"NIM rate limited: {e}") from e
+            raise VisionAPIError(
+                f"NIM HTTP error {e.response.status_code}: {e}"
+            ) from e
+        except httpx.HTTPError as e:
+            raise VisionAPIError(f"NIM HTTP error: {e}") from e
+
+        if resp.status_code != 200:
+            raise VisionAPIError(
+                f"NIM API returned {resp.status_code}: {resp.text[:500]}"
+            )
+
+        try:
+            data = resp.json()
+        except json.JSONDecodeError as e:
+            raise VisionAPIError(
+                f"NIM returned invalid JSON: {resp.text[:500]}"
+            ) from e
+
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not text:
+            raise VisionAPIError("NIM returned empty response")
+        return self._validate_json_response(text.strip(), None)

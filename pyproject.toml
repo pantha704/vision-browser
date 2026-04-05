@@ -15,10 +15,12 @@ dependencies = [
     "rich>=13.0.0",
     "playwright>=1.40.0",
     "playwright-stealth>=1.0.0",
+    "mcp>=1.0.0",
 ]
 
 [project.scripts]
 vision-browser = "vision_browser.cli:main"
+vision-browser-mcp = "vision_browser.mcp_server_v2:main"
 
 [build-system]
 requires = ["hatchling"]

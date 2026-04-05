@@ -392,3 +392,348 @@ class PlaywrightBrowser:
             return True
         except Exception:
             return False
+
+    # ── Playwright Semantic Locators (instant, no Vision API needed) ───
+
+    def find_element(
+        self,
+        *,
+        role: str | None = None,
+        name: str | None = None,
+        text: str | None = None,
+        label: str | None = None,
+        placeholder: str | None = None,
+        test_id: str | None = None,
+        css: str | None = None,
+        has_text: str | None = None,
+    ) -> Any | None:
+        """Find element using Playwright semantic locators.
+        
+        Returns the first matching Playwright Locator/ElementHandle or None.
+        Tries each provided strategy in order until one succeeds.
+        """
+        return self._make_locator(
+            role=role,
+            name=name,
+            text=text,
+            label=label,
+            placeholder=placeholder,
+            css=css,
+            has_text=has_text,
+        )
+
+    def locator_click(
+        self,
+        *,
+        role: str | None = None,
+        name: str | None = None,
+        text: str | None = None,
+        label: str | None = None,
+        placeholder: str | None = None,
+        css: str | None = None,
+        has_text: str | None = None,
+        timeout: int = _ACTION_TIMEOUT,
+    ) -> bool:
+        """Click element found via semantic locators.
+        
+        Returns True if clicked, False if not found.
+        """
+        locator = self._make_locator(
+            role=role, name=name, text=text, label=label,
+            placeholder=placeholder, css=css, has_text=has_text,
+        )
+        if locator is None:
+            return False
+        try:
+            locator.click(timeout=timeout)
+            return True
+        except PlaywrightError as e:
+            logger.debug(f"locator_click failed: {e}")
+            return False
+
+    def locator_fill(
+        self,
+        *,
+        label: str | None = None,
+        placeholder: str | None = None,
+        role: str | None = None,
+        name: str | None = None,
+        css: str | None = None,
+        text: str,
+        timeout: int = _ACTION_TIMEOUT,
+    ) -> bool:
+        """Fill input element found via semantic locators.
+        
+        Returns True if filled, False if not found.
+        """
+        locator = self._make_locator(
+            role=role, name=name, label=label,
+            placeholder=placeholder, css=css,
+        )
+        if locator is None:
+            return False
+        try:
+            locator.click(timeout=timeout)
+            locator.fill(text, timeout=timeout)
+            return True
+        except PlaywrightError as e:
+            logger.debug(f"locator_fill failed: {e}")
+            return False
+
+    def locator_get_text(
+        self,
+        *,
+        role: str | None = None,
+        name: str | None = None,
+        text: str | None = None,
+        css: str | None = None,
+        has_text: str | None = None,
+    ) -> str | None:
+        """Get text content of element found via locators.
+        
+        Returns text or None if not found.
+        """
+        locator = self._make_locator(
+            role=role, name=name, text=text, css=css, has_text=has_text,
+        )
+        if locator is None:
+            return None
+        try:
+            return locator.first.text_content()
+        except PlaywrightError:
+            return None
+
+    def locator_exists(
+        self,
+        *,
+        role: str | None = None,
+        name: str | None = None,
+        text: str | None = None,
+        label: str | None = None,
+        placeholder: str | None = None,
+        css: str | None = None,
+        has_text: str | None = None,
+    ) -> bool:
+        """Check if element exists using semantic locators."""
+        locator = self._make_locator(
+            role=role, name=name, text=text, label=label,
+            placeholder=placeholder, css=css, has_text=has_text,
+        )
+        if locator is None:
+            return False
+        try:
+            return locator.count() > 0
+        except Exception:
+            return False
+
+    def get_interactive_elements(self) -> list[dict[str, Any]]:
+        """Get list of all interactive elements via JavaScript evaluation.
+
+        Returns list of dicts with role, name, selector, and metadata.
+        Elements are ordered by visual position (top-to-bottom, left-to-right)
+        so the model can reference "first video" meaningfully.
+        """
+        try:
+            elements = self._page.evaluate("""() => {
+                const interactiveSelectors = [
+                    'a[href]', 'button', 'input:not([type="hidden"])',
+                    'select', 'textarea',
+                    '[role="button"]', '[role="link"]', '[role="textbox"]',
+                    '[role="combobox"]', '[role="searchbox"]', '[role="tab"]',
+                    '[role="menuitem"]', '[role="checkbox"]', '[role="radio"]',
+                    '[role="slider"]', '[role="spinbutton"]',
+                    '[tabindex]:not([tabindex="-1"])',
+                    'summary', 'details'
+                ];
+                const selector = interactiveSelectors.join(', ');
+                const allElements = document.querySelectorAll(selector);
+                const result = [];
+                const seen = new Set();
+
+                function generateSelector(el) {
+                    if (!el || el === document.documentElement) return 'html';
+                    if (el.id) return `#${el.id}`;
+
+                    let sel = el.tagName.toLowerCase();
+
+                    // Add class if unique
+                    if (el.classList.length > 0) {
+                        const classes = Array.from(el.classList)
+                            .filter(c => !c.startsWith('css-') && !c.startsWith('yt-') && c.length < 20)
+                            .slice(0, 2)
+                            .join('.');
+                        if (classes) sel += `.${classes}`;
+                    }
+
+                    // Add nth-child if needed for uniqueness
+                    const parent = el.parentElement;
+                    if (parent) {
+                        const siblings = Array.from(parent.children)
+                            .filter(s => s.tagName === el.tagName);
+                        if (siblings.length > 1) {
+                            const idx = siblings.indexOf(el) + 1;
+                            sel += `:nth-of-type(${idx})`;
+                        }
+                    }
+
+                    return sel;
+                }
+
+                function isVisible(el) {
+                    let current = el;
+                    while (current && current !== document.documentElement) {
+                        const style = window.getComputedStyle(current);
+                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                            return false;
+                        }
+                        current = current.parentElement;
+                    }
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 5 && rect.height > 5;
+                }
+
+                function getVisualPosition(el) {
+                    const rect = el.getBoundingClientRect();
+                    return {
+                        top: rect.top,
+                        left: rect.left,
+                        y: Math.round(rect.top),
+                        x: Math.round(rect.left)
+                    };
+                }
+
+                allElements.forEach((el) => {
+                    if (!isVisible(el)) return;
+                    if (seen.has(el)) return;
+                    seen.add(el);
+
+                    const role = el.getAttribute('role') ||
+                                 el.tagName.toLowerCase() ||
+                                 'unknown';
+                    const name = el.getAttribute('aria-label') ||
+                                 el.getAttribute('aria-labelledby') ||
+                                 el.getAttribute('placeholder') ||
+                                 el.getAttribute('title') ||
+                                 el.getAttribute('alt') ||
+                                 el.textContent?.trim().slice(0, 80) ||
+                                 el.id ||
+                                 '';
+
+                    const sel = generateSelector(el);
+                    const pos = getVisualPosition(el);
+
+                    result.push({
+                        role: role,
+                        name: name,
+                        tagName: el.tagName.toLowerCase(),
+                        type: el.getAttribute('type') || '',
+                        id: el.id || '',
+                        selector: sel,
+                        href: el.getAttribute('href') || '',
+                        _visualY: pos.y,
+                        _visualX: pos.x
+                    });
+                });
+
+                // Sort by visual position (top-to-bottom, then left-to-right)
+                result.sort((a, b) => {
+                    // Group elements within 20px vertically
+                    const rowDiff = Math.abs(a._visualY - b._visualY);
+                    if (rowDiff < 20) return a._visualX - b._visualX;
+                    return a._visualY - b._visualY;
+                });
+
+                // Remove visual position metadata from output
+                return result.slice(0, 80).map(el => {
+                    const { _visualY, _visualX, ...rest } = el;
+                    return rest;
+                });
+            }""")
+            return elements or []
+        except Exception as e:
+            logger.debug(f"Failed to get interactive elements: {e}")
+            return []
+
+    def get_page_summary(self) -> dict[str, Any]:
+        """Get quick page summary without screenshot.
+        
+        Returns URL, title, and interactive element count.
+        """
+        try:
+            url = self._page.url
+            title = self._page.title()
+            elements = self.get_interactive_elements()
+            return {
+                "url": url,
+                "title": title,
+                "interactive_count": len(elements),
+                "elements": elements[:50],  # Limit to first 50 for prompt
+            }
+        except Exception as e:
+            logger.debug(f"Failed to get page summary: {e}")
+            return {"url": "", "title": "", "interactive_count": 0, "elements": []}
+
+    def _make_locator(self, **kwargs):
+        """Create a Playwright locator from keyword arguments.
+        
+        Tries strategies in order of specificity and returns the first match.
+        """
+        
+        role = kwargs.pop("role", None)
+        name = kwargs.pop("name", None)
+        text = kwargs.pop("text", None)
+        label = kwargs.pop("label", None)
+        placeholder = kwargs.pop("placeholder", None)
+        test_id = kwargs.pop("test_id", None)
+        css = kwargs.pop("css", None)
+        has_text = kwargs.pop("has_text", None)
+        
+        # Build candidate locators in order of preference
+        candidates = []
+        
+        # Most specific: role + name combination
+        if role and name:
+            candidates.append(self._page.get_by_role(role, name=name))
+        
+        # Role-based locators
+        if role:
+            candidates.append(self._page.get_by_role(role))
+        
+        # Text content matching
+        if text:
+            candidates.append(self._page.get_by_text(text))
+        
+        # Label matching for form inputs
+        if label:
+            candidates.append(self._page.get_by_label(label))
+        
+        # Placeholder text matching
+        if placeholder:
+            candidates.append(self._page.get_by_placeholder(placeholder))
+        
+        # Test ID matching
+        if test_id:
+            candidates.append(self._page.get_by_test_id(test_id))
+        
+        # Raw CSS selector as last resort
+        if css:
+            candidates.append(self._page.locator(css))
+        
+        if not candidates:
+            return None
+        
+        # Try each candidate and return the first one that has elements
+        for loc in candidates:
+            if has_text:
+                loc = loc.filter(has_text=has_text)
+            try:
+                if loc.count() > 0:
+                    return loc
+            except Exception:
+                continue
+        
+        # If none found, return the first candidate anyway (will fail on click/fill)
+        first = candidates[0]
+        if has_text:
+            first = first.filter(has_text=has_text)
+        return first

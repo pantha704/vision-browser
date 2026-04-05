@@ -139,6 +139,11 @@ def main() -> None:
         action="store_true",
         help="Use new Playwright-based fast orchestrator (experimental)",
     )
+    parser.add_argument(
+        "--locator",
+        action="store_true",
+        help="Use locator-based mode (Playwright semantic locators, no Vision API for element finding)",
+    )
 
     args = parser.parse_args()
     _setup_logging(verbose=args.verbose)
@@ -174,8 +179,15 @@ def main() -> None:
     try:
         from vision_browser.orchestrator import Orchestrator
         from vision_browser.fast_orchestrator import FastOrchestrator
+        from vision_browser.locator_orchestrator import LocatorOrchestrator
 
-        if args.fast:
+        if args.locator:
+            console.print(
+                "[bold blue]⚡ Using locator-based orchestrator (Playwright semantic locators)[/bold blue]"
+            )
+            orchestrator = LocatorOrchestrator(cfg)
+            orchestrator.run(args.task, url=args.url)
+        elif args.fast:
             console.print(
                 "[bold blue]⚡ Using fast Playwright orchestrator[/bold blue]"
             )
@@ -190,6 +202,8 @@ def main() -> None:
 
         # Clean shutdown for fast orchestrator
         if args.fast and hasattr(orchestrator, "close"):
+            orchestrator.close()
+        elif args.locator and hasattr(orchestrator, "close"):
             orchestrator.close()
     except ConfigError as e:
         _print_user_error(
