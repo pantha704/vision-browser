@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 
 from vision_browser.playwright_browser import PlaywrightBrowser
 from vision_browser.config import BrowserConfig
-from vision_browser.exceptions import (
-    ActionExecutionError,
-    BrowserError,
-    BrowserNotInstalledError,
-)
 
 
 class TestPlaywrightBrowser:

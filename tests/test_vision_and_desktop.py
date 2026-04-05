@@ -4,19 +4,17 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 import pytest_httpx
 
-from vision_browser.config import AppConfig, DesktopConfig, VisionConfig
+from vision_browser.config import DesktopConfig, VisionConfig
 from vision_browser.desktop import DesktopController
 from vision_browser.exceptions import (
     ActionExecutionError,
     ModelResponseError,
-    RateLimitError,
     TimeoutError,
     VisionAPIError,
 )
@@ -28,9 +26,7 @@ from tests.mocks import (
     nim_partial_json_response,
     nim_prose_response,
     nim_success_response,
-    groq_empty_response,
     groq_success_response,
-    groq_tool_call_response,
 )
 
 NIM_URL = "https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/24e0c62b-f7d0-44ba-8012-012c2a1aaf31"

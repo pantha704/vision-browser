@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 
-from vision_browser.config import AppConfig, OrchestratorConfig
+from vision_browser.config import AppConfig
 from vision_browser.diff_screenshot import DifferentialScreenshot
 
 
@@ -40,7 +39,7 @@ class TestDiffScreenshotIntegration:
 
     def test_diff_not_initialized_when_disabled(self):
         """When auto_diff_screenshots is False, diff_screenshot should be None."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from vision_browser.fast_orchestrator import FastOrchestrator
 
         cfg = AppConfig()

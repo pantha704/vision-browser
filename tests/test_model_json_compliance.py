@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from vision_browser.exceptions import ModelResponseError, VisionAPIError
+from vision_browser.exceptions import ModelResponseError
 from vision_browser.vision import VisionClient
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import signal
-import sys
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest

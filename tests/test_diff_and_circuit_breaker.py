@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 
 from vision_browser.config import AppConfig
 from vision_browser.diff_screenshot import DifferentialScreenshot
-from vision_browser.circuit_breaker import CircuitBreaker, CircuitOpenError, CircuitState
 
 
 class TestDiffScreenshotSkipOptimization:

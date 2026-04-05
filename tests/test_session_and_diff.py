@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from vision_browser.session import SessionManager
 from vision_browser.diff_screenshot import DifferentialScreenshot
@@ -18,7 +16,7 @@ class TestSessionManagerInit:
     def test_init_creates_dir(self, tmp_path):
         """SessionManager creates session directory."""
         session_dir = tmp_path / "sessions"
-        manager = SessionManager(session_dir)
+        _manager = SessionManager(session_dir)  # noqa: F841
         assert session_dir.exists()
 
     def test_init_with_default_dir(self):

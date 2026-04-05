@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from vision_browser.mcp_server import (
     ALL_TOOLS,
     CLICK_TOOL,
-    EXTRACT_TOOL,
-    EXECUTE_TOOL,
     FILL_TOOL,
     NAVIGATE_TOOL,
     SCREENSHOT_TOOL,
@@ -20,9 +18,6 @@ from vision_browser.mcp_server import (
 )
 from vision_browser.websocket_preview import WebSocketPreview
 from vision_browser.multi_browser import (
-    BROWSER_CHROMIUM,
-    BROWSER_FIREFOX,
-    BROWSER_WEBKIT,
     MultiBrowserManager,
 )
 from vision_browser.session_pool import BrowserSession, SessionPool
@@ -159,10 +154,11 @@ class TestWebSocketPreview:
     def test_connect_disconnect(self):
         """Connect and disconnect clients."""
         preview = WebSocketPreview()
-        cb = lambda msg: None
-        preview.connect(cb)
+        def _noop(msg):  # noqa: ARG001
+            pass
+        preview.connect(_noop)
         assert preview.client_count == 1
-        preview.disconnect(cb)
+        preview.disconnect(_noop)
         assert preview.client_count == 0
 
     def test_send_screenshot_missing_file(self):

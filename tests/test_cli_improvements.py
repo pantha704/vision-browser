@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 
 class TestTaskSummary:
@@ -28,7 +27,7 @@ class TestTaskSummary:
 
     def test_get_task_summary_after_run(self):
         """After run, summary reflects task state."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from vision_browser.config import AppConfig
         from vision_browser.fast_orchestrator import FastOrchestrator
 
@@ -76,7 +75,6 @@ class TestRichFallback:
 
     def test_fallback_console_strips_markup(self):
         """Fallback console should strip Rich markup from output."""
-        import re
         from vision_browser import cli
 
         # Save original HAS_RICH

@@ -93,7 +93,7 @@ def mock_groq_success():
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = mock_response
 
-    with patch("vision_browser.vision.Groq", return_value=mock_client) as mock_groq_cls:
+    with patch("vision_browser.vision.Groq", return_value=mock_client):
         yield mock_client
 
 
@@ -106,7 +106,7 @@ def mock_groq_tool_call():
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = mock_response
 
-    with patch("vision_browser.vision.Groq", return_value=mock_client) as mock_groq_cls:
+    with patch("vision_browser.vision.Groq", return_value=mock_client):
         yield mock_client
 
 
@@ -119,7 +119,7 @@ def mock_groq_empty():
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = mock_response
 
-    with patch("vision_browser.vision.Groq", return_value=mock_client) as mock_groq_cls:
+    with patch("vision_browser.vision.Groq", return_value=mock_client):
         yield mock_client
 
 
