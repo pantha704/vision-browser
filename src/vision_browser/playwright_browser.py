@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import shutil
-import time
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +17,6 @@ from vision_browser.config import BrowserConfig
 from vision_browser.exceptions import (
     ActionExecutionError,
     BrowserError,
-    BrowserNotInstalledError,
     TimeoutError,
 )
 from vision_browser.session import SessionManager

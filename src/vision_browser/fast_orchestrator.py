@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import sys
-from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -184,7 +182,7 @@ class FastOrchestrator:
                 if url == last_url:
                     consecutive_failures += 1
                     if consecutive_failures >= 2:
-                        console.print(f"[yellow]  ⚠️ Stuck on same URL. Forcing strategy change.[/yellow]")
+                        console.print("[yellow]  ⚠️ Stuck on same URL. Forcing strategy change.[/yellow]")
                 else:
                     consecutive_failures = 0
                 last_url = url
@@ -387,8 +385,3 @@ class FastOrchestrator:
 
         for line in lines:
             console.print(line)
-
-    def close(self) -> None:
-        """Clean shutdown with screenshot cleanup."""
-        self.browser.close()
-        self.screenshots.cleanup()

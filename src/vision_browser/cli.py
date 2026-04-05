@@ -9,6 +9,13 @@ import shutil
 import sys
 from pathlib import Path
 
+from vision_browser.config import AppConfig
+from vision_browser.exceptions import (
+    BrowserNotInstalledError,
+    ConfigError,
+    VisionBrowserError,
+)
+
 # CLI-04: Graceful Rich fallback
 try:
     from rich.console import Console
@@ -31,14 +38,6 @@ if not HAS_RICH:
     Panel = None  # type: ignore
 
 console = Console()
-
-
-from vision_browser.config import AppConfig
-from vision_browser.exceptions import (
-    BrowserNotInstalledError,
-    ConfigError,
-    VisionBrowserError,
-)
 
 
 def _print_user_error(message: str, suggestion: str = "") -> None:

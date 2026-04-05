@@ -24,3 +24,4 @@ auth.json
 # Local config (if user overrides)
 config.local.yaml
 .coverage
+.gitnexus

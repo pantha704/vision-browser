@@ -5,14 +5,13 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import re
 import time
 from pathlib import Path
 
 import httpx
 from groq import Groq
 
-from vision_browser.config import AppConfig, VisionConfig
+from vision_browser.config import VisionConfig
 from vision_browser.exceptions import (
     ModelResponseError,
     RateLimitError,
@@ -43,7 +42,7 @@ class VisionClient:
 
             try:
                 return self._nim_analyze(image_path, prompt, schema)
-            except ModelResponseError as e:
+            except ModelResponseError:
                 # Model returned invalid JSON -- retry with stricter prompt
                 if attempt < self._max_retries:
                     stricter_prompt = self._build_stricter_prompt(prompt, schema, attempt)
@@ -60,7 +59,7 @@ class VisionClient:
 
                 if attempt == self._max_retries:
                     raise VisionAPIError(
-                        f"All vision API attempts exhausted. Last error: model failed to produce valid JSON after retries"
+                        "All vision API attempts exhausted. Last error: model failed to produce valid JSON after retries"
                     )
 
                 backoff = self._backoff_base * (2 ** (attempt - 1))
@@ -273,7 +272,7 @@ class VisionClient:
                             break
 
         # 4. Last resort: wrap text in a safe structure
-        logger.warning(f"Could not extract JSON from model response. Wrapping text.")
+        logger.warning("Could not extract JSON from model response. Wrapping text.")
         return {"actions": [], "done": False, "reasoning": text.strip()}
 
     def _validate_json_response(
