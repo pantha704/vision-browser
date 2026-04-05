@@ -18,8 +18,9 @@ Thumbs.db
 auth.json
 *.har
 
-# Screenshots
-/tmp/vision-browser-*.png
+# Screenshots (old hardcoded path + new session dirs)
+/tmp/vision-browser-screenshot.png
+/tmp/vision-browser-*/
 
 # Local config (if user overrides)
 config.local.yaml
