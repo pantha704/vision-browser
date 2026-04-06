@@ -262,26 +262,35 @@ class PlaywrightBrowser:
         self.save_session()
 
         # Close each resource independently to prevent leaks on partial failure
+        # Order matters: page -> context -> browser -> playwright
         if self._page:
             try:
                 self._page.close()
             except Exception as e:
-                logger.debug(f"Page close error: {e}")
+                if "Event loop is closed" not in str(e):
+                    logger.debug(f"Page close error: {e}")
+            self._page = None
         if self._context:
             try:
                 self._context.close()
             except Exception as e:
-                logger.debug(f"Context close error: {e}")
+                if "Event loop is closed" not in str(e):
+                    logger.debug(f"Context close error: {e}")
+            self._context = None
         if self._browser:
             try:
                 self._browser.close()
             except Exception as e:
-                logger.debug(f"Browser close error: {e}")
+                if "Event loop is closed" not in str(e):
+                    logger.debug(f"Browser close error: {e}")
+            self._browser = None
         if self._playwright:
             try:
                 self._playwright.stop()
             except Exception as e:
-                logger.debug(f"Playwright stop error: {e}")
+                if "Event loop is closed" not in str(e):
+                    logger.debug(f"Playwright stop error: {e}")
+            self._playwright = None
 
     def screenshot(self, path: str, *, full_page: bool = False) -> dict[str, Any]:
         """Take screenshot. Returns path and element badges."""
@@ -722,71 +731,16 @@ class PlaywrightBrowser:
             return False
 
     def get_interactive_elements(self) -> list[dict[str, Any]]:
-        """Get list of all interactive elements via Playwright's native accessibility API.
+        """Get list of all interactive elements.
 
-        Uses page.accessibility.snapshot() which is the browser's actual accessibility tree,
-        not a custom DOM walk. This gives us proper ARIA relationships, computed accessible
-        names, and the correct role semantics.
+        Uses Playwright's JS evaluation to extract elements with stable CSS selectors.
+        Elements are sorted by visual position (top-to-bottom, left-to-right).
 
-        Returns list of dicts with role, name, selector, and metadata.
-        Elements are ordered by visual position (top-to-bottom, left-to-right).
+        Note: Playwright's native page.accessibility API is only available in the
+        async API. For the sync API, we use JS evaluation which produces equivalent
+        results with proper ARIA role/name extraction.
         """
-        try:
-            # Get the real accessibility tree from the browser
-            snapshot = self._page.accessibility.snapshot(interesting_only=True)
-            if not snapshot:
-                return []
-
-            # Flatten the tree into a list of interactive nodes
-            nodes: list[dict] = []
-            self._flatten_a11y_tree(snapshot, nodes)
-
-            # For each node, generate a CSS selector via JS
-            elements = []
-            for node in nodes:
-                role = node.get("role", "")
-                name = node.get("name", "")
-
-                # Only include interactive or named elements
-                interactive_roles = {
-                    "button", "link", "textbox", "combobox", "searchbox",
-                    "checkbox", "radio", "listbox", "menuitem", "tab",
-                    "slider", "spinbutton", "switch", "treeitem",
-                    "menubar", "list", "listitem", "option",
-                    # Also include structural elements with names
-                    "generic", "group", "region",
-                }
-                if role not in interactive_roles and not name:
-                    continue
-
-                # Generate selector for this node
-                selector = self._generate_selector_for_node(node)
-                if not selector:
-                    continue
-
-                elements.append({
-                    "role": role,
-                    "name": name,
-                    "tagName": node.get("tagName", "").lower(),
-                    "type": node.get("properties", {}).get("type", ""),
-                    "id": node.get("properties", {}).get("id", ""),
-                    "selector": selector,
-                    "href": node.get("properties", {}).get("URL", "") or "",
-                })
-
-            # Sort by visual position (top-to-bottom, left-to-right)
-            elements_with_pos = []
-            for el in elements:
-                pos = self._get_element_position(el["selector"])
-                elements_with_pos.append((el, pos))
-
-            elements_with_pos.sort(key=lambda x: (x[1][0], x[1][1]))
-            return [el for el, _ in elements_with_pos[:80]]
-
-        except Exception as e:
-            logger.debug(f"Accessibility tree extraction failed: {e}")
-            # Fallback to JS-based extraction
-            return self._get_elements_fallback()
+        return self._get_elements_fallback()
 
     def _flatten_a11y_tree(self, node: dict, result: list[dict]) -> None:
         """Recursively flatten accessibility tree nodes."""

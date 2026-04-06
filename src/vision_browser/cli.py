@@ -178,6 +178,9 @@ def main() -> None:
     # CLI overrides
     if args.brave:
         cfg.browser.cdp_url = "http://localhost:9222"
+    else:
+        # Clear CDP URL when not using Brave — launch own Chromium instead
+        cfg.browser.cdp_url = None
     if args.session:
         cfg.browser.session_name = args.session
 
