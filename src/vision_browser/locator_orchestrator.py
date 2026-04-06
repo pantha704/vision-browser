@@ -170,13 +170,30 @@ class LocatorOrchestrator:
         self.close()
 
     def close(self) -> None:
-        """Clean shutdown. Skip if keep_alive is True (user takes over)."""
+        """Clean shutdown. If keep_alive, enter interactive take-over mode."""
         if self.keep_alive:
             current_url = self.browser.get_url() or "unknown"
             console.print("\n[yellow]⏸️ Browser kept alive for user take-over[/yellow]")
             console.print(f"   Current URL: {current_url}")
-            console.print("   [dim]Close the browser window manually when done.[/dim]")
-            # Don't close the browser — leave it open for user interaction
+            console.print("   [dim]Type a task, or 'quit'/'q' to close.[/dim]")
+            try:
+                while True:
+                    try:
+                        task = input("\n> ")
+                    except EOFError:
+                        break
+                    task = task.strip()
+                    if not task:
+                        continue
+                    if task.lower() in ("quit", "q", "exit"):
+                        break
+                    console.print(f"\n[dim]Running: {task}[/dim]")
+                    self._run_loop(task)
+                    self._print_summary()
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Interrupted[/yellow]")
+            finally:
+                self.browser.close()
             return
         self.browser.close()
 
