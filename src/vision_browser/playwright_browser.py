@@ -247,8 +247,15 @@ class PlaywrightBrowser:
     def close(self) -> None:
         """Close browser. Skip if using CDP (user controls the browser)."""
         if self.cfg.cdp_url:
-            # Never close CDP-connected browser — user owns it
-            logger.debug("CDP mode: skipping browser close (user controls Brave)")
+            # Save session before disconnecting
+            self.save_session()
+            # Stop Playwright subprocess (we don't close the browser — user owns it)
+            if self._playwright:
+                try:
+                    self._playwright.stop()
+                    logger.debug("CDP mode: stopped Playwright subprocess")
+                except Exception as e:
+                    logger.debug(f"Playwright stop error: {e}")
             return
 
         # Save session before closing owned browser
@@ -470,11 +477,59 @@ class PlaywrightBrowser:
     def is_alive(self) -> bool:
         """Check if browser is still responsive."""
         if self._page_crashed:
-            return False
+            # Try to recover — reset flag and test
+            try:
+                self._page.evaluate("1")
+                self._page_crashed = False  # Recovered
+                logger.info("Page recovered from crash state")
+                return True
+            except Exception:
+                return False
         try:
             self._page.evaluate("1")
             return True
         except Exception:
+            return False
+
+    def reconnect(self) -> bool:
+        """Reconnect to the browser via CDP.
+
+        Useful when the connection was lost but the browser is still running.
+        Returns True if reconnection succeeded.
+        """
+        if not self.cfg.cdp_url:
+            logger.debug("Reconnect not available in non-CDP mode")
+            return False
+
+        self._page_crashed = False
+        try:
+            # Reconnect browser
+            self._browser = self._playwright.chromium.connect_over_cdp(
+                self.cfg.cdp_url, timeout=self.cfg.timeout_ms
+            )
+            # Reuse existing context/page
+            contexts = self._browser.contexts
+            if contexts:
+                self._context = contexts[0]
+                pages = self._context.pages
+                if pages:
+                    self._page = pages[0]
+                else:
+                    self._page = self._context.new_page()
+            else:
+                self._context = self._browser.new_context()
+                self._page = self._context.new_page()
+
+            # Restore session if configured
+            self._restore_session()
+
+            # Re-register crash handler
+            self._setup_crash_handler()
+
+            logger.info(f"Reconnected to browser via CDP: {self.cfg.cdp_url}")
+            return True
+        except Exception as e:
+            logger.warning(f"Reconnect failed: {e}")
             return False
 
     def check_page_state(self) -> dict:

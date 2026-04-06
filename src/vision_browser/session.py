@@ -98,12 +98,37 @@ class SessionManager:
                     f"Restored {len(cookies)} cookies from session '{session_name}'"
                 )
 
-            # Restore storage state if available
+            # Restore localStorage/IndexedDB via JS evaluation
+            # (storage_state can only be set at context creation, not on existing context)
             storage_state = session_data.get("storage_state")
             if storage_state and storage_state.get("origins"):
-                logger.info(
-                    f"Restored storage for {len(storage_state['origins'])} origins"
-                )
+                origins_restored = 0
+                for origin_data in storage_state["origins"]:
+                    origin = origin_data.get("origin", "")
+                    local_storage = origin_data.get("localStorage", [])
+                    if origin and local_storage:
+                        try:
+                            # Restore localStorage via JS on each origin's page
+                            context.add_init_script(
+                                f"""
+                                (() => {{
+                                    const items = {json.dumps(local_storage)};
+                                    items.forEach(([key, value]) => {{
+                                        try {{ localStorage.setItem(key, value); }}
+                                        catch (e) {{}}
+                                    }});
+                                }})();
+                                """
+                            )
+                            origins_restored += 1
+                        except Exception as e:
+                            logger.debug(f"Could not restore localStorage for {origin}: {e}")
+
+                if origins_restored:
+                    logger.info(
+                        f"Queued localStorage restore for {origins_restored} origins "
+                        f"from session '{session_name}'"
+                    )
 
             return True
 
