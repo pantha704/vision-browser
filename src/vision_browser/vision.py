@@ -524,7 +524,7 @@ class VisionClient:
         system_prompt: str,
         prompt_override: str | None = None,
     ) -> dict:
-        """Call NIM API with page state (no image)."""
+        """Call LLM API with page state (no image). Uses Groq for speed."""
         # Build the prompt from page state
         user_prompt = prompt_override
         if user_prompt is None:
@@ -549,7 +549,46 @@ class VisionClient:
                 f"INTERACTIVE ELEMENTS:\n{element_text}\n\n"
                 f"Return ONLY JSON with actions to accomplish the task."
             )
-        
+
+        # Since this is text-only (no image), use Groq for speed (~1s vs 60s NIM)
+        try:
+            groq_client = self._get_groq()
+            resp = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=self.cfg.groq_max_tokens,
+                temperature=0.1,
+            )
+            text = resp.choices[0].message.content
+            if not text:
+                raise VisionAPIError("Groq returned empty response")
+            return self._validate_json_response(text.strip(), None)
+        except Exception as e:
+            # If Groq fails, fall back to NIM
+            logger.warning(f"Groq failed ({e}), falling back to NIM")
+            return self._nim_analyze_page_with_nim(
+                url=url,
+                title=title,
+                elements=elements,
+                task=task,
+                system_prompt=system_prompt,
+                prompt_override=user_prompt,
+            )
+
+    def _nim_analyze_page_with_nim(
+        self,
+        *,
+        url: str,
+        title: str,
+        elements: list[dict],
+        task: str,
+        system_prompt: str,
+        prompt_override: str | None = None,
+    ) -> dict:
+        """Call NIM API with page state (no image) — fallback when Groq unavailable."""
         try:
             resp = httpx.post(
                 "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -562,15 +601,15 @@ class VisionClient:
                     "model": self.cfg.nim_model,
                     "messages": [
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": prompt_override},
                     ],
                     "max_tokens": self.cfg.nim_max_tokens,
                     "temperature": 0.1,
                 },
-                timeout=60,
+                timeout=30,
             )
         except httpx.TimeoutException as e:
-            raise TimeoutError(f"NIM API timed out after 60s: {e}") from e
+            raise TimeoutError(f"NIM API timed out after 30s: {e}") from e
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 raise RateLimitError(f"NIM rate limited: {e}") from e
