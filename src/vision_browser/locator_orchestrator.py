@@ -458,7 +458,21 @@ class LocatorOrchestrator:
                         if selector:
                             logger.debug(f"Clicking: {selector}")
                             console.print(f"    [dim]click -> {selector}[/dim]")
-                            self.browser._page.click(selector, timeout=30000)
+                            try:
+                                self.browser._page.click(selector, timeout=30000)
+                            except Exception:
+                                # Try stealth click (dispatch event directly)
+                                logger.debug("Normal click failed, trying stealth click")
+                                self.browser._page.evaluate(
+                                    "(sel) => {"
+                                    "  const el = document.querySelector(sel);"
+                                    "  if (el) {"
+                                    "    el.focus();"
+                                    "    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));"
+                                    "  }"
+                                    "}",
+                                    selector,
+                                )
                             success += 1
                             feedback.append(f"OK Clicked {el_info}")
                             self._wait_for_load()

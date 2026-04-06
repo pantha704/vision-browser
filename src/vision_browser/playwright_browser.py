@@ -146,6 +146,16 @@ class PlaywrightBrowser:
                     },
                 )
                 self._page = self._context.new_page()
+                
+                # Apply stealth mode to remove automation fingerprints
+                try:
+                    from playwright_stealth import stealth_async
+                    import asyncio
+                    asyncio.get_event_loop().run_until_complete(stealth_async(self._page))
+                    logger.debug("Stealth mode applied to page")
+                except Exception as e:
+                    logger.debug(f"Stealth mode not available: {e}")
+                
                 mode = "headless" if self.cfg.headless else "headed (visible)"
                 logger.info(f"Launched new {mode} browser")
             except Exception as e:
@@ -347,10 +357,61 @@ class PlaywrightBrowser:
 
         selector = self._resolve_ref(ref)
         try:
+            # Try normal fill first
             self._page.click(selector, timeout=_ACTION_TIMEOUT)
             self._page.fill(selector, text, timeout=_ACTION_TIMEOUT)
-        except PlaywrightError as e:
-            raise ActionExecutionError(f"Fill failed on {ref}: {e}") from e
+        except PlaywrightError:
+            # Normal fill failed — try stealth mode (bypasses overlay divs)
+            logger.debug(f"Normal fill failed, using stealth fill for {ref}")
+            self.stealth_fill(selector, text)
+
+    def stealth_fill(self, selector: str, text: str) -> None:
+        """Fill input by dispatching keyboard events directly on element.
+        
+        Bypasses overlay divs that intercept pointer events (common on X/Twitter).
+        Types character by character with human-like timing.
+        """
+        import random
+        
+        # Focus element and clear it via JS
+        self._page.evaluate(
+            "(sel) => {"
+            "  const el = document.querySelector(sel);"
+            "  if (!el) throw new Error('Element not found');"
+            "  el.focus();"
+            "  if (el.value !== undefined) el.value = '';"
+            "  el.dispatchEvent(new Event('input', { bubbles: true }));"
+            "  el.dispatchEvent(new Event('change', { bubbles: true }));"
+            "}",
+            selector,
+        )
+        
+        # Type each character with human-like delay
+        for char in text:
+            # Dispatch keyboard events
+            self._page.evaluate(
+                "({sel, char}) => {"
+                "  const el = document.querySelector(sel);"
+                "  if (!el) return;"
+                "  el.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));"
+                "  el.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));"
+                "  el.value = (el.value || '') + char;"
+                "  el.dispatchEvent(new InputEvent('input', { bubbles: true }));"
+                "  el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));"
+                "}",
+                {"sel": selector, "char": char},
+            )
+            # Human-like typing delay (50-150ms)
+            self._page.wait_for_timeout(random.uniform(50, 150))
+        
+        # Final change event
+        self._page.evaluate(
+            "(sel) => {"
+            "  const el = document.querySelector(sel);"
+            "  if (el) el.dispatchEvent(new Event('change', { bubbles: true }));"
+            "}",
+            selector,
+        )
 
     def press(self, key: str) -> None:
         """Press keyboard key."""

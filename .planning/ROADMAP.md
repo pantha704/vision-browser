@@ -3,7 +3,8 @@
 ## Milestones
 
 - ✅ **v0.6 Developer Experience & Reliability** — Phases 10-14 (shipped 2026-04-05)
-- 🔄 **v0.7 Production Readiness** — Phases 15-20 (in progress)
+- ✅ **v0.7 Production Readiness** — Phases 15-20 (shipped 2026-04-06)
+- 🔄 **v0.8 Real-World Reliability** — Phases 21-26 (planning)
 
 ## Phases
 
@@ -30,6 +31,18 @@
 
 </details>
 
+<details>
+<summary>🔄 v0.8 Real-World Reliability (Phases 21-26) — PLANNING</summary>
+
+- [ ] Phase 21: MCP Server End-to-End Test — configure Qwen Code MCP client, test all 9 tools live
+- [ ] Phase 22: Stealth Mode for Anti-Bot — bypass overlay divs on X/Twitter login, human-like timing
+- [ ] Phase 23: Multi-Step Task Orchestration — handle login flows, pagination, form wizard navigation
+- [ ] Phase 24: Cleanup Dead Code — remove MultiBrowserManager, SessionPool or integrate them
+- [ ] Phase 25: Error Recovery Auto-Resume — detect failures, retry with different strategy automatically
+- [ ] Phase 26: v0.8 Release — final tests, docs update, version bump, tag
+
+</details>
+
 ## Progress
 
 | Phase                          | Milestone | Plans Complete | Status    | Completed  |
@@ -45,3 +58,9 @@
 | 18. Rate Limit Persistence     | v0.7      | 1/1            | Complete  | 2026-04-06 |
 | 19. MCP Integration Tests      | v0.7      | 0/1            | Deferred  | —          |
 | 20. MultiBrowserManager Wire   | v0.7      | 0/1            | Deferred  | —          |
+| 21. MCP E2E Test               | v0.8      | 0/1            | Pending   | —          |
+| 22. Stealth Mode Anti-Bot      | v0.8      | 0/1            | Pending   | —          |
+| 23. Multi-Step Orchestration   | v0.8      | 0/1            | Pending   | —          |
+| 24. Cleanup Dead Code          | v0.8      | 0/1            | Pending   | —          |
+| 25. Error Recovery Auto-Resume | v0.8      | 0/1            | Pending   | —          |
+| 26. v0.8 Release               | v0.8      | 0/1            | Pending   | —          |
