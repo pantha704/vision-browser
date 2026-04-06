@@ -14,10 +14,14 @@ class VisionConfig(BaseModel):
     """Vision model API configuration."""
 
     provider: str = "nim"
-    nim_function_id: str = "24e0c62b-f7d0-44ba-8012-012c2a1aaf31"
+    # NVIDIA NIM — OpenAI-compatible endpoint (much faster than NVCF)
+    nim_model: str = "meta/llama-3.2-90b-vision-instruct"
     nim_max_tokens: int = Field(default=1024, ge=64, le=4096)
+    # Legacy NVCF support (deprecated — use nim_model instead)
+    nim_function_id: str = "24e0c62b-f7d0-44ba-8012-012c2a1aaf31"
+    # Fallback provider
     fallback_provider: str = "groq"
-    groq_model: str = "llama-3.2-11b-vision"
+    groq_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     groq_max_tokens: int = Field(default=1024, ge=64, le=4096)
 
     @property
@@ -31,9 +35,10 @@ class VisionConfig(BaseModel):
             )
         return key
 
-    @property
-    def groq_api_key(self) -> str:
-        return os.environ.get("GROQ_API_KEY", "")
+    def get_groq_api_key(self) -> str | None:
+        """Get Groq API key from config or environment."""
+        key = os.environ.get("GROQ_API_KEY", "")
+        return key or None
 
 
 class BrowserConfig(BaseModel):

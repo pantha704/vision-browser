@@ -29,7 +29,7 @@ from tests.mocks import (
     groq_success_response,
 )
 
-NIM_URL = "https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/24e0c62b-f7d0-44ba-8012-012c2a1aaf31"
+NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 
 # ── VisionClient Init Tests ────────────────────────────────────────
