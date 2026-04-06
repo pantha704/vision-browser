@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 import os
 from pathlib import Path
 
@@ -42,7 +44,7 @@ class BrowserConfig(BaseModel):
     viewport: tuple[int, int] = (1280, 720)
     timeout_ms: int = Field(default=30000, ge=5000, le=120000)
     session_name: str = ""  # Empty = no persistence
-    cdp_url: str = ""  # Empty = launch local Chrome; set to Brave CDP
+    cdp_url: Optional[str] = None  # None = launch local Chromium; set to Brave CDP
 
     @field_validator("viewport")
     @classmethod

@@ -13,13 +13,17 @@ vision:
   groq_max_tokens: 1024
 
 browser:
-  # Use agent-browser CLI (must be installed: npm i -g agent-browser)
-  tool: "agent-browser"
-  annotate: true  # Use annotated screenshots with numbered badges
+  # Default: Launch Playwright's own Chromium (recommended — most reliable)
+  # Playwright Chromium has extra automation patches, no GPU crashes,
+  # no extension interference, and works perfectly in headless mode.
+  #
+  # To use Brave instead (for authenticated sessions):
+  #   1. Start Brave: brave-browser --remote-debugging-port=9222 --no-sandbox --disable-gpu &
+  #   2. Set cdp_url below, or use --brave CLI flag
+  cdp_url: null
   viewport: [1280, 720]
-  timeout_ms: 30000  # 30s default for heavy sites
+  timeout_ms: 30000
   session_name: ""  # Set to persist cookies between runs (e.g. "default")
-  cdp_url: "http://localhost:9222"  # Connect to running Brave/Chrome
 
 desktop:
   # Fallback for non-browser apps

@@ -139,7 +139,7 @@ class TestBrowserConfig:
     def test_default_config(self):
         """Test default config values."""
         cfg = BrowserConfig()
-        assert cfg.cdp_url == ""
+        assert cfg.cdp_url is None  # None = launch local Chromium
         assert cfg.session_name == ""
         assert cfg.annotate is True
         assert cfg.timeout_ms == 30000

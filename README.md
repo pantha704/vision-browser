@@ -4,10 +4,10 @@
 
 ```bash
 # ⚡ Locator mode (fastest — 15s for search + click)
-uv run vision-browser "Search for 'Python tutorial' on YouTube and click the first video" --url https://youtube.com --brave --locator
+uv run vision-browser "Search for 'Python tutorial' on YouTube and click the first video" --url https://youtube.com --locator
 
 # 🖼️ Fast mode (screenshot + vision model)
-uv run vision-browser "Search for 'Python libraries'" --url https://google.com --brave --fast
+uv run vision-browser "Search for 'Python libraries'" --url https://google.com --fast
 
 # 🔌 MCP server (for AI assistants)
 uv run vision-browser-mcp
@@ -34,38 +34,44 @@ export NVIDIA_API_KEY="nvapi-..."
 
 Get a key at [build.nvidia.com](https://build.nvidia.com) (free tier available).
 
-### 3. Start Brave with Remote Debugging
+### 3. Run
 
 ```bash
-brave-browser --remote-debugging-port=9222 --no-sandbox &
+# ⚡ Default: uses Playwright Chromium (most reliable, no setup needed)
+uv run vision-browser "Search for 'Python tutorial' on YouTube and click the first video" --url https://youtube.com --locator
 ```
 
-### 4. Run
-
-```bash
-uv run vision-browser "Search for 'machine learning' on YouTube" --url https://youtube.com --brave --locator
-```
+**No browser setup needed.** Playwright launches its own Chromium with automation patches built-in.
 
 ---
 
 ## Three Modes
 
-| Mode | Flag | Speed | Best For |
-|------|------|-------|----------|
-| **🎯 Locator** | `--locator` | ⚡⚡⚡ ~3-5s/turn | Search, navigation, form filling |
-| **🖼️ Fast** | `--fast` | ⚡⚡ ~5-10s/turn | Visual tasks (click specific image) |
-| **🐢 Legacy** | (none) | ⚡ ~30-60s/turn | Desktop apps, non-browser targets |
+| Mode | Flag | Browser | Speed | Best For |
+|------|------|---------|-------|----------|
+| **🎯 Locator** | `--locator` | Playwright Chromium (default) | ⚡⚡⚡ ~3-5s/turn | Search, navigation, form filling |
+| **🖼️ Fast** | `--fast` | Playwright Chromium (default) | ⚡⚡ ~5-10s/turn | Visual tasks (click specific image) |
+| **🐢 Legacy** | (none) | agent-browser CLI | ⚡ ~30-60s/turn | Desktop apps, non-browser targets |
 
-### 🎯 Locator Mode (Recommended)
+**Why Playwright Chromium?** It's the most reliable browser for automation:
+- Officially supported by Playwright team
+- Extra patches for automation reliability
+- No GPU crashes on Linux
+- No extension interference
+- Works perfectly in headless mode
 
-Uses Playwright's semantic locators — **no screenshots needed for element finding**. Extracts interactive elements instantly via JavaScript and sends only text to the AI model.
+**To use your own Brave/Chrome** (for authenticated sessions):
+```bash
+brave-browser --remote-debugging-port=9222 --no-sandbox --disable-gpu --in-process-gpu &
+uv run vision-browser "task" --url https://youtube.com --brave --locator
+```
 
 ```bash
 # Search and click (completes in ~15s)
-uv run vision-browser "Search for 'Python tutorial' on YouTube and click the first video" --url https://youtube.com --brave --locator
+uv run vision-browser "Search for 'Python tutorial' on YouTube and click the first video" --url https://youtube.com --locator
 
 # Fill a form
-uv run vision-browser "Fill the contact form with name John, email john@example.com, message Hello" --url https://example.com/contact --brave --locator
+uv run vision-browser "Fill the contact form with name John, email john@example.com, message Hello" --url https://example.com/contact --locator
 ```
 
 **How it works:**
@@ -83,7 +89,7 @@ uv run vision-browser "Fill the contact form with name John, email john@example.
 Takes screenshots, injects numbered badges on elements, and sends annotated images to a Vision model. Use when you need visual understanding (e.g., "click the thumbnail showing a sunset").
 
 ```bash
-uv run vision-browser "Find and click the video with over 1M views" --url https://youtube.com --brave --fast
+uv run vision-browser "Find and click the video with over 1M views" --url https://youtube.com --fast
 ```
 
 ### 🔌 MCP Server
