@@ -149,9 +149,9 @@ class PlaywrightBrowser:
                 
                 # Apply stealth mode to remove automation fingerprints
                 try:
-                    from playwright_stealth import stealth_async
-                    import asyncio
-                    asyncio.get_event_loop().run_until_complete(stealth_async(self._page))
+                    from playwright_stealth import Stealth
+                    stealth = Stealth()
+                    stealth.apply_stealth(self._page)
                     logger.debug("Stealth mode applied to page")
                 except Exception as e:
                     logger.debug(f"Stealth mode not available: {e}")
