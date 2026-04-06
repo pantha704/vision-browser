@@ -1,28 +1,43 @@
-"""MCP Server for Vision Browser — browser automation via Model Context Protocol.
+#!/usr/bin/env python3
+"""
+MCP Server for Vision Browser.
 
-Exposes browser automation as MCP tools compatible with Claude, Cursor,
-VS Code, and other MCP clients.
+Provides browser automation via Playwright + AI reasoning tools.
+Connect to a running Brave browser via CDP (Chrome DevTools Protocol).
 
-Tools:
-- vision_browser_navigate: Navigate to a URL
-- vision_browser_screenshot: Take a screenshot of the current page
-- vision_browser_get_elements: Get interactive elements with their indices
-- vision_browser_click: Click an element by index
-- vision_browser_fill: Fill an input field by index
-- vision_browser_press: Press a keyboard key
-- vision_browser_scroll: Scroll the page
-- vision_browser_execute: Execute a high-level natural language task
-- vision_browser_health: Check server health and connection status
+Usage:
+    # Start Brave with remote debugging first:
+    brave-browser --remote-debugging-port=9222 --no-sandbox &
+
+    # Then run this MCP server:
+    uv run vision-browser-mcp
+
+MCP Client Configuration (e.g., Claude Desktop, Cursor):
+    {
+      "mcpServers": {
+        "vision-browser": {
+          "command": "uv",
+          "args": ["run", "vision-browser-mcp"],
+          "cwd": "/path/to/vision-browser",
+          "env": {
+            "NVIDIA_API_KEY": "nvapi-..."
+          }
+        }
+      }
+    }
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
-from pathlib import Path
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Dict, List, Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
+from pydantic import BaseModel, ConfigDict, Field
 
 from vision_browser.config import AppConfig
 from vision_browser.playwright_browser import PlaywrightBrowser
@@ -30,77 +45,321 @@ from vision_browser.vision import VisionClient
 
 logger = logging.getLogger(__name__)
 
-# ── Server Instance ────────────────────────────────────────────────────
+# ── Server ─────────────────────────────────────────────────────────────
 
 mcp = FastMCP(
-    name="vision-browser",
-    instructions="Browser automation with Playwright + AI vision. Use navigate() to go to URLs, get_elements() to see interactive elements, then click/fill to interact. Or use execute() for high-level natural language tasks.",
+    name="vision_browser_mcp",
+    instructions=(
+        "Browser automation with Playwright + AI vision. "
+        "Use vision_browser_navigate to go to URLs, "
+        "vision_browser_get_elements to see interactive elements, "
+        "then vision_browser_click or vision_browser_fill to interact. "
+        "Or use vision_browser_execute for high-level natural language tasks."
+    ),
 )
 
-# ── Browser State (global, managed by server lifecycle) ────────────────
-
-_browser: PlaywrightBrowser | None = None
-_vision: VisionClient | None = None
-_cfg: AppConfig | None = None
-_element_cache: list[dict[str, Any]] = []
-_server_start_time: float = 0.0
-_screenshot_files: list[str] = []  # Track temp screenshots for cleanup
+# ── Lifespan ───────────────────────────────────────────────────────────
 
 
-def _get_browser() -> PlaywrightBrowser:
-    """Get or create browser instance."""
-    global _browser, _cfg
-    if _browser is None:
-        _cfg = AppConfig()
-        _cfg.browser.cdp_url = "http://localhost:9222"
-        _browser = PlaywrightBrowser(_cfg.browser)
-    return _browser
+class BrowserState(BaseModel):
+    """Shared browser state managed by the lifespan."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    browser: Optional[PlaywrightBrowser] = None
+    vision: Optional[VisionClient] = None
+    element_cache: List[Dict[str, Any]] = []
+    started_at: float = 0.0
+    config: Optional[AppConfig] = None
 
 
-def _get_vision() -> VisionClient:
-    """Get or create vision client with orchestrator config."""
-    global _vision, _cfg
-    if _vision is None:
-        if _cfg is None:
-            _cfg = AppConfig()
-        _vision = VisionClient(
-            _cfg.vision,
+@asynccontextmanager
+async def app_lifespan() -> AsyncIterator[Dict[str, Any]]:
+    """Manage browser instance across the server lifetime."""
+    state = BrowserState()
+    state.started_at = time.monotonic()
+
+    try:
+        cfg = AppConfig()
+        cfg.browser.cdp_url = os.environ.get(
+            "VISION_BROWSER_CDP_URL", "http://localhost:9222"
+        )
+        state.config = cfg
+        state.browser = PlaywrightBrowser(cfg.browser)
+        state.vision = VisionClient(
+            cfg.vision,
             {
-                "retry_attempts": _cfg.orchestrator.retry_attempts,
-                "retry_backoff_base": _cfg.orchestrator.retry_backoff_base,
-                "rate_limit_delay": _cfg.orchestrator.rate_limit_delay,
+                "retry_attempts": cfg.orchestrator.retry_attempts,
+                "retry_backoff_base": cfg.orchestrator.retry_backoff_base,
+                "rate_limit_delay": cfg.orchestrator.rate_limit_delay,
             },
         )
-    return _vision
+        logger.info("Browser connected via CDP")
+    except Exception as e:
+        logger.error(f"Failed to connect browser: {e}")
+        state.browser = None
+
+    state_dict = {"state": state}
+    try:
+        yield state_dict
+    finally:
+        # Cleanup on shutdown
+        if state.browser is not None:
+            try:
+                state.browser.close()
+                logger.info("Browser closed")
+            except Exception as e:
+                logger.debug(f"Browser close error: {e}")
+
+
+mcp = FastMCP(
+    name="vision_browser_mcp",
+    instructions=(
+        "Browser automation with Playwright + AI reasoning. "
+        "Navigate pages, find and click elements, fill forms, scroll, "
+        "and execute high-level tasks using natural language."
+    ),
+    lifespan=app_lifespan,
+)
+
+
+# ── Input Models ───────────────────────────────────────────────────────
+
+
+class NavigateInput(BaseModel):
+    """Input for navigation operations."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    url: str = Field(
+        ...,
+        description="URL to navigate to (must start with http:// or https://)",
+        min_length=8,
+        max_length=2000,
+        examples=["https://www.google.com", "https://youtube.com"],
+    )
+
+
+class ClickInput(BaseModel):
+    """Input for click operations."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    element: int = Field(
+        ...,
+        description="Element index to click (1-based, from vision_browser_get_elements)",
+        ge=1,
+        le=1000,
+        examples=[1, 3, 5],
+    )
+
+
+class FillInput(BaseModel):
+    """Input for fill operations."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    element: int = Field(
+        ...,
+        description="Element index to fill (1-based, from vision_browser_get_elements)",
+        ge=1,
+        le=1000,
+        examples=[1, 2],
+    )
+    text: str = Field(
+        ...,
+        description="Text to enter into the input field",
+        min_length=0,
+        max_length=5000,
+        examples=["search query", "user@example.com"],
+    )
+
+
+class PressInput(BaseModel):
+    """Input for keyboard operations."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    key: str = Field(
+        ...,
+        description=(
+            "Key to press. Allowed: Enter, Tab, Escape, Backspace, Delete, "
+            "ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Home, End, PageUp, "
+            "PageDown, Space, Control+a, Control+c, Control+v, Control+x, Control+z"
+        ),
+        examples=["Enter", "Tab", "Control+c"],
+    )
+
+
+class ScrollInput(BaseModel):
+    """Input for scroll operations."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    direction: str = Field(
+        default="down",
+        description="Scroll direction: 'up' or 'down'",
+        examples=["down", "up"],
+    )
+    amount: int = Field(
+        default=500,
+        description="Pixels to scroll",
+        ge=50,
+        le=5000,
+        examples=[300, 500, 800],
+    )
+
+
+class ScreenshotInput(BaseModel):
+    """Input for screenshot operations."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    full_page: bool = Field(
+        default=False,
+        description="Whether to capture the full scrollable page (false = viewport only)",
+        examples=[True, False],
+    )
+
+
+class ExecuteInput(BaseModel):
+    """Input for high-level task execution."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    task: str = Field(
+        ...,
+        description=(
+            "Natural language description of what to accomplish. "
+            "Examples: 'Search for Python tutorials on YouTube', "
+            "'Fill the login form with user@example.com and password123'"
+        ),
+        min_length=5,
+        max_length=2000,
+        examples=[
+            "Search for 'machine learning' on Google",
+            "Find the latest news about AI on Hacker News",
+        ],
+    )
+
+
+# ── Allowed Keys ───────────────────────────────────────────────────────
+
+_ALLOWED_KEYS = frozenset({
+    "Enter", "Tab", "Escape", "Backspace", "Delete",
+    "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+    "Home", "End", "PageUp", "PageDown", " ",
+    "Control+a", "Control+c", "Control+v", "Control+x", "Control+z",
+})
+
+
+# ── Shared Helpers ─────────────────────────────────────────────────────
+
+
+def _get_state(ctx: Context) -> BrowserState:
+    """Extract browser state from context."""
+    return ctx.request_context.lifespan_state["state"]
+
+
+def _refresh_elements(state: BrowserState) -> List[Dict[str, Any]]:
+    """Refresh the element cache and return the list."""
+    if state.browser is None:
+        return []
+    state.element_cache = state.browser.get_interactive_elements()
+    return state.element_cache
+
+
+def _format_elements(
+    elements: List[Dict[str, Any]], max_count: int = 50
+) -> str:
+    """Format elements as a numbered list for display."""
+    if not elements:
+        return "  (no interactive elements found)"
+
+    lines = []
+    for i, el in enumerate(elements[:max_count], 1):
+        role = el.get("role", "")
+        name = el.get("name", "")
+        el_type = el.get("type", "")
+        selector = el.get("selector", "")
+        href = el.get("href", "")
+
+        parts = []
+        if role:
+            parts.append(f"role={role}")
+        if name:
+            short = name[:50] + "..." if len(name) > 50 else name
+            parts.append(f'"{short}"')
+        if el_type:
+            parts.append(f"type={el_type}")
+        if href and "/watch" in href:
+            parts.append("video link")
+        if selector:
+            parts.append(f"-> {selector}")
+
+        desc = " ".join(parts) if parts else "unknown"
+        lines.append(f"  [{i}] {desc}")
+
+    if len(elements) > max_count:
+        lines.append(f"  ... and {len(elements) - max_count} more")
+
+    return "\n".join(lines)
+
+
+def _wait_for_load(browser: PlaywrightBrowser) -> None:
+    """Wait for DOM content to load after navigation actions."""
+    try:
+        browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
+    except Exception:
+        pass
 
 
 # ── Tool: Health ───────────────────────────────────────────────────────
 
-@mcp.tool()
-def vision_browser_health() -> dict:
+
+@mcp.tool(
+    name="vision_browser_health",
+    annotations={
+        "title": "Check Browser Health",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def vision_browser_health() -> str:
     """Check server health and browser connection status.
 
+    Returns JSON with server uptime, browser status, current URL, and title.
+    Use this to verify the browser is connected before running other tools.
+
     Returns:
-        Dictionary with server uptime, browser connection status, and version.
+        str: JSON with health status:
+        {
+            "status": "healthy" | "disconnected",
+            "uptime_seconds": float,
+            "browser_connected": bool,
+            "current_url": str,
+            "current_title": str
+        }
     """
-    global _browser, _server_start_time
-    if _server_start_time == 0.0:
-        _server_start_time = time.monotonic()
-    uptime = time.monotonic() - _server_start_time
+    state = _get_state(ctx=None)  # type: ignore
+    uptime = time.monotonic() - state.started_at
+
     browser_ok = False
     url = ""
     title = ""
 
-    if _browser is not None:
+    if state.browser is not None:
         try:
-            browser_ok = _browser.is_alive()
+            browser_ok = state.browser.is_alive()
             if browser_ok:
-                url = _browser.get_url()
-                title = _browser.get_title()
+                url = state.browser.get_url()
+                title = state.browser.get_title()
         except Exception:
             browser_ok = False
 
-    return {
+    result = {
         "status": "healthy" if browser_ok else "disconnected",
         "version": "0.7.0",
         "uptime_seconds": round(uptime, 1),
@@ -108,602 +367,680 @@ def vision_browser_health() -> dict:
         "current_url": url,
         "current_title": title,
     }
+    return json.dumps(result, indent=2)
 
 
 # ── Tool: Navigate ─────────────────────────────────────────────────────
 
-@mcp.tool()
-def vision_browser_navigate(url: str) -> dict:
+
+@mcp.tool(
+    name="vision_browser_navigate",
+    annotations={
+        "title": "Navigate to URL",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def vision_browser_navigate(params: NavigateInput) -> str:
     """Navigate the browser to a URL.
 
+    Opens the specified URL and waits for the page to load.
+    After navigation, use vision_browser_get_elements to see available elements.
+
     Args:
-        url: The URL to navigate to (must start with http:// or https://).
+        params.url: Full URL starting with http:// or https://
 
     Returns:
-        Dictionary with navigation result including final URL and page title.
+        str: JSON with navigation result:
+        {
+            "success": bool,
+            "url": str (final URL after redirects),
+            "title": str,
+            "interactive_elements": int (count of available elements)
+        }
 
-    Example:
-        vision_browser_navigate(url="https://www.google.com")
+    Examples:
+        - Go to Google: url="https://www.google.com"
+        - Go to YouTube: url="https://youtube.com"
     """
-    global _element_cache
-    _element_cache = []
+    state = _get_state(ctx=None)  # type: ignore
 
-    browser = _get_browser()
+    if state.browser is None:
+        return json.dumps({"success": False, "error": "Browser not connected"})
 
+    url = params.url
     if not url.lower().startswith(("http://", "https://")):
-        return {
+        return json.dumps({
             "success": False,
             "error": "URL must start with http:// or https://",
             "suggestion": f"Try: https://{url}",
-        }
+        })
 
     try:
-        browser.open(url)
-        page_url = browser.get_url()
-        page_title = browser.get_title()
-        elements = browser.get_interactive_elements()
-        _element_cache = elements
-
-        return {
+        state.browser.open(url)
+        elements = _refresh_elements(state)
+        result = {
             "success": True,
-            "url": page_url,
-            "title": page_title,
+            "url": state.browser.get_url(),
+            "title": state.browser.get_title(),
             "interactive_elements": len(elements),
-            "message": f"Navigated to {page_url}",
         }
+        return json.dumps(result, indent=2)
     except Exception as e:
-        return {
+        return json.dumps({
             "success": False,
-            "error": str(e),
-            "suggestion": "Check the URL and try again. Ensure the browser is running.",
-        }
+            "error": str(e)[:200],
+            "suggestion": "Check the URL and ensure the browser is running.",
+        })
 
 
 # ── Tool: Get Elements ─────────────────────────────────────────────────
 
-@mcp.tool()
-def vision_browser_get_elements() -> dict:
+
+@mcp.tool(
+    name="vision_browser_get_elements",
+    annotations={
+        "title": "Get Interactive Elements",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def vision_browser_get_elements() -> str:
     """Get all interactive elements on the current page.
 
-    Returns a numbered list of interactive elements with their CSS selectors,
-    roles, and visible text. Use the element index with click/fill tools.
+    Returns a numbered list of elements with their roles, text, and CSS selectors.
+    Use the element index (1-based) with vision_browser_click or vision_browser_fill.
+
+    Call this BEFORE clicking or filling to see what elements are available.
+    Elements are ordered by visual position (top-to-bottom, left-to-right).
 
     Returns:
-        Dictionary with current URL, title, and numbered element list.
+        str: Markdown list of elements with index, role, name, and selector.
+        Or JSON error if browser is not connected.
 
-    Example:
-        # Returns elements like:
-        # [1] role=searchbox "Search" -> input#search
-        # [2] role=button "Google Search" -> button
+    Example output:
+        ## Page: Google (https://www.google.com/)
+        Found 15 interactive elements
+
+        | # | Role | Name | Selector |
+        |---|------|------|----------|
+        | 1 | searchbox | "Search" | textarea[name="q"] |
+        | 2 | button | "Google Search" | button[name="btnK"] |
     """
-    global _element_cache
-    browser = _get_browser()
+    state = _get_state(ctx=None)  # type: ignore
+
+    if state.browser is None:
+        return json.dumps({"error": "Browser not connected"})
 
     try:
-        url = browser.get_url()
-        title = browser.get_title()
-        elements = browser.get_interactive_elements()
-        _element_cache = elements
+        url = state.browser.get_url()
+        title = state.browser.get_title()
+        elements = _refresh_elements(state)
 
-        # Format elements as numbered list
-        element_list = []
+        lines = [
+            f"## Page: {title} ({url})",
+            f"Found {len(elements)} interactive elements",
+            "",
+            "| # | Role | Name | Selector |",
+            "|---|------|------|----------|",
+        ]
+
         for i, el in enumerate(elements[:50], 1):
             role = el.get("role", "")
-            name = el.get("name", "")
+            name = el.get("name", "")[:50]
             selector = el.get("selector", "")
-            href = el.get("href", "")
-
-            item = {
-                "index": i,
-                "role": role,
-                "name": name[:60] if name else "",
-                "selector": selector,
-            }
-            if href and "/watch" in href:
-                item["type"] = "video_link"
-            element_list.append(item)
+            lines.append(f"| {i} | {role} | {name} | {selector} |")
 
         if len(elements) > 50:
-            element_list.append({"note": f"... and {len(elements) - 50} more"})
+            lines.append(f"\n... and {len(elements) - 50} more elements")
 
-        return {
-            "success": True,
-            "url": url,
-            "title": title,
-            "total_elements": len(elements),
-            "elements": element_list,
-        }
+        return "\n".join(lines)
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "suggestion": "Ensure the browser is connected and a page is loaded.",
-        }
+        return json.dumps({
+            "error": str(e)[:200],
+            "suggestion": "Ensure a page is loaded and the browser is running.",
+        })
 
 
 # ── Tool: Click ────────────────────────────────────────────────────────
 
-@mcp.tool()
-def vision_browser_click(element: int) -> dict:
+
+@mcp.tool(
+    name="vision_browser_click",
+    annotations={
+        "title": "Click Element",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def vision_browser_click(params: ClickInput) -> str:
     """Click an interactive element by its index number.
 
-    First call vision_browser_get_elements to see available elements and their indices.
+    First call vision_browser_get_elements to see available elements.
+    After clicking, the page may navigate — call vision_browser_get_elements
+    again to see the new page's elements.
 
     Args:
-        element: The index number of the element to click (1-based, from get_elements).
+        params.element: 1-based index from vision_browser_get_elements
 
     Returns:
-        Dictionary with click result including new URL and title if navigation occurred.
-
-    Example:
-        # After get_elements shows: [3] role=link "About" -> a.about-link
-        vision_browser_click(element=3)
-    """
-    global _element_cache
-    browser = _get_browser()
-
-    if element < 1 or element > len(_element_cache):
-        return {
-            "success": False,
-            "error": f"Element index {element} out of range (1-{len(_element_cache)})",
-            "suggestion": "Call vision_browser_get_elements first to see available elements.",
+        str: JSON with click result:
+        {
+            "success": bool,
+            "clicked": str (element description),
+            "url": str (current URL after click),
+            "title": str,
+            "new_elements_available": int
         }
 
-    el = _element_cache[element - 1]
+    Examples:
+        - Click element #3: element=3
+        - Click search button after finding it: element=2
+    """
+    state = _get_state(ctx=None)  # type: ignore
+
+    if state.browser is None:
+        return json.dumps({"success": False, "error": "Browser not connected"})
+
+    if params.element < 1 or params.element > len(state.element_cache):
+        return json.dumps({
+            "success": False,
+            "error": f"Element {params.element} out of range (1-{len(state.element_cache)})",
+            "suggestion": "Call vision_browser_get_elements first to see available elements.",
+        })
+
+    el = state.element_cache[params.element - 1]
     selector = el.get("selector", "")
 
     if not selector:
-        return {
+        return json.dumps({
             "success": False,
-            "error": f"Element {element} has no CSS selector",
-            "element_info": el,
+            "error": f"Element {params.element} has no CSS selector",
+            "element": el,
             "suggestion": "Try a different element or refresh with get_elements.",
-        }
+        })
 
     try:
-        browser._page.click(selector, timeout=30000)
-        try:
-            browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
-        except Exception:
-            pass
+        state.browser._page.click(selector, timeout=30000)
+        _wait_for_load(state.browser)
+        elements = _refresh_elements(state)
 
-        # Refresh element cache after navigation
-        url = browser.get_url()
-        title = browser.get_title()
-        _element_cache = browser.get_interactive_elements()
-
-        return {
+        return json.dumps({
             "success": True,
-            "clicked": f"Element {element} ({el.get('role', '')}: {el.get('name', '')[:40]})",
-            "url": url,
-            "title": title,
-            "new_elements_available": len(_element_cache),
-        }
+            "clicked": f"Element {params.element} ({el.get('role', '')}: {el.get('name', '')[:40]})",
+            "url": state.browser.get_url(),
+            "title": state.browser.get_title(),
+            "new_elements_available": len(elements),
+        })
     except Exception as e:
-        return {
+        return json.dumps({
             "success": False,
             "error": str(e)[:200],
-            "element_info": el,
-            "suggestion": f"Element {element} may not be clickable. Try a different element or call get_elements to refresh.",
-        }
+            "element": el,
+            "suggestion": f"Element {params.element} may not be clickable. Refresh with get_elements.",
+        })
 
 
 # ── Tool: Fill ─────────────────────────────────────────────────────────
 
-@mcp.tool()
-def vision_browser_fill(element: int, text: str) -> dict:
+
+@mcp.tool(
+    name="vision_browser_fill",
+    annotations={
+        "title": "Fill Input Field",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def vision_browser_fill(params: FillInput) -> str:
     """Fill an input field with text by its index number.
 
-    First call vision_browser_get_elements to see available input elements.
+    First call vision_browser_get_elements to find input elements
+    (look for role=searchbox, role=textbox, or role=combobox).
+
+    After filling, you may need to call vision_browser_press with key="Enter"
+    to submit the form.
 
     Args:
-        element: The index number of the input element to fill (1-based).
-        text: The text to type into the input field.
+        params.element: 1-based index from vision_browser_get_elements
+        params.text: Text to enter (max 5000 chars)
 
     Returns:
-        Dictionary with fill result.
-
-    Example:
-        # After get_elements shows: [1] role=searchbox "Search" -> input#search
-        vision_browser_fill(element=1, text="Python tutorial")
-    """
-    global _element_cache
-    browser = _get_browser()
-
-    if element < 1 or element > len(_element_cache):
-        return {
-            "success": False,
-            "error": f"Element index {element} out of range (1-{len(_element_cache)})",
-            "suggestion": "Call vision_browser_get_elements first to see available elements.",
+        str: JSON with fill result:
+        {
+            "success": bool,
+            "filled": str,
+            "message": str
         }
 
-    el = _element_cache[element - 1]
+    Examples:
+        - Fill search box: element=1, text="Python tutorial"
+        - Fill email field: element=3, text="user@example.com"
+    """
+    state = _get_state(ctx=None)  # type: ignore
+
+    if state.browser is None:
+        return json.dumps({"success": False, "error": "Browser not connected"})
+
+    if params.element < 1 or params.element > len(state.element_cache):
+        return json.dumps({
+            "success": False,
+            "error": f"Element {params.element} out of range (1-{len(state.element_cache)})",
+            "suggestion": "Call vision_browser_get_elements first.",
+        })
+
+    el = state.element_cache[params.element - 1]
     selector = el.get("selector", "")
 
     if not selector:
-        return {
+        return json.dumps({
             "success": False,
-            "error": f"Element {element} has no CSS selector",
+            "error": f"Element {params.element} has no CSS selector",
             "suggestion": "Try a different element or refresh with get_elements.",
-        }
+        })
 
     try:
-        browser._page.fill(selector, text, timeout=30000)
-        return {
+        state.browser._page.fill(selector, params.text, timeout=30000)
+        return json.dumps({
             "success": True,
-            "filled": f"Element {element} with: {text[:50]}",
-            "message": "Text entered. Press Enter (vision_browser_press) to submit if needed.",
-        }
+            "filled": f"Element {params.element} ({el.get('role', '')}) with: {params.text[:50]}",
+            "message": "Text entered. Use vision_browser_press(key='Enter') to submit if needed.",
+        })
     except Exception as e:
-        return {
+        return json.dumps({
             "success": False,
             "error": str(e)[:200],
-            "element_info": el,
-            "suggestion": f"Element {element} may not be a text input. Try a different element.",
-        }
+            "element": el,
+            "suggestion": f"Element {params.element} may not be a text input.",
+        })
 
 
 # ── Tool: Press ────────────────────────────────────────────────────────
 
-_ALLOWED_KEYS = {
-    "Enter", "Tab", "Escape", "Backspace", "Delete",
-    "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
-    "Home", "End", "PageUp", "PageDown", " ",
-    "Control+a", "Control+c", "Control+v", "Control+x", "Control+z",
-}
 
-
-@mcp.tool()
-def vision_browser_press(key: str) -> dict:
+@mcp.tool(
+    name="vision_browser_press",
+    annotations={
+        "title": "Press Keyboard Key",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def vision_browser_press(params: PressInput) -> str:
     """Press a keyboard key.
 
-    Common keys: Enter, Tab, Escape, Backspace, Delete, ArrowLeft, ArrowRight,
-    ArrowUp, ArrowDown, Home, End, PageUp, PageDown.
-    Also supports: Control+a, Control+c, Control+v, Control+x, Control+z.
+    Common keys: Enter (submit forms), Tab (navigate fields),
+    Escape (close dialogs), Backspace, Delete, Arrow keys.
+    Also: Control+a/c/v/x/z for select all, copy, paste, cut, undo.
 
     Args:
-        key: The key to press.
+        params.key: Key to press
 
     Returns:
-        Dictionary with press result including new URL if navigation occurred.
+        str: JSON with result including current URL and title.
 
-    Example:
-        vision_browser_press(key="Enter")  # Submit a form
-        vision_browser_press(key="Control+c")  # Copy
+    Examples:
+        - Submit form: key="Enter"
+        - Move to next field: key="Tab"
+        - Copy selected text: key="Control+c"
     """
-    global _element_cache
-    browser = _get_browser()
+    state = _get_state(ctx=None)  # type: ignore
 
-    if key not in _ALLOWED_KEYS:
-        return {
+    if state.browser is None:
+        return json.dumps({"success": False, "error": "Browser not connected"})
+
+    if params.key not in _ALLOWED_KEYS:
+        allowed = sorted(_ALLOWED_KEYS)
+        return json.dumps({
             "success": False,
-            "error": f"Key '{key}' not allowed",
-            "allowed_keys": sorted(_ALLOWED_KEYS),
+            "error": f"Key '{params.key}' not allowed",
+            "allowed_keys": allowed,
             "suggestion": "Use one of the allowed keys listed above.",
-        }
+        })
 
     try:
-        browser._page.keyboard.press(key)
-        if key == "Enter":
-            try:
-                browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
-            except Exception:
-                pass
+        state.browser._page.keyboard.press(params.key)
+        if params.key == "Enter":
+            _wait_for_load(state.browser)
+        elements = _refresh_elements(state)
 
-        # Refresh element cache after potential navigation
-        url = browser.get_url()
-        title = browser.get_title()
-        _element_cache = browser.get_interactive_elements()
-
-        return {
+        return json.dumps({
             "success": True,
-            "key_pressed": key,
-            "url": url,
-            "title": title,
-        }
+            "key_pressed": params.key,
+            "url": state.browser.get_url(),
+            "title": state.browser.get_title(),
+            "elements_available": len(elements),
+        })
     except Exception as e:
-        return {
+        return json.dumps({
             "success": False,
-            "error": str(e),
-            "suggestion": "Check if the page is responsive and try again.",
-        }
+            "error": str(e)[:200],
+            "suggestion": "Check if the page is responsive.",
+        })
 
 
 # ── Tool: Scroll ───────────────────────────────────────────────────────
 
-@mcp.tool()
-def vision_browser_scroll(direction: str = "down", amount: int = 500) -> dict:
+
+@mcp.tool(
+    name="vision_browser_scroll",
+    annotations={
+        "title": "Scroll Page",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def vision_browser_scroll(params: ScrollInput) -> str:
     """Scroll the page up or down.
 
+    Useful for loading more content on infinite-scroll pages
+    or navigating long forms.
+
     Args:
-        direction: "up" or "down" (default: "down").
-        amount: Number of pixels to scroll (default: 500).
+        params.direction: "up" or "down" (default: "down")
+        params.amount: Pixels to scroll (default: 500, range: 50-5000)
 
     Returns:
-        Dictionary with scroll result.
+        str: JSON with scroll result and count of newly visible elements.
 
-    Example:
-        vision_browser_scroll(direction="down", amount=800)
+    Examples:
+        - Scroll down 500px: direction="down", amount=500
+        - Scroll up 300px: direction="up", amount=300
     """
-    global _element_cache
-    browser = _get_browser()
+    state = _get_state(ctx=None)  # type: ignore
 
-    if direction not in ("up", "down"):
-        return {
+    if state.browser is None:
+        return json.dumps({"success": False, "error": "Browser not connected"})
+
+    if params.direction not in ("up", "down"):
+        return json.dumps({
             "success": False,
-            "error": f"Direction must be 'up' or 'down', got '{direction}'",
-            "suggestion": "Use direction='down' to scroll down, direction='up' to scroll up.",
-        }
+            "error": "Direction must be 'up' or 'down'",
+            "suggestion": "Use direction='down' or direction='up'.",
+        })
 
     try:
-        browser.scroll(direction, amount)
-        # Refresh elements after scroll (new elements may be visible)
-        _element_cache = browser.get_interactive_elements()
+        state.browser.scroll(params.direction, params.amount)
+        elements = _refresh_elements(state)
 
-        return {
+        return json.dumps({
             "success": True,
-            "scrolled": f"{direction} by {amount}px",
-            "new_elements_available": len(_element_cache),
-        }
+            "scrolled": f"{params.direction} by {params.amount}px",
+            "elements_available": len(elements),
+        })
     except Exception as e:
-        return {
+        return json.dumps({
             "success": False,
-            "error": str(e),
-            "suggestion": "Check if the page is responsive and try again.",
-        }
+            "error": str(e)[:200],
+            "suggestion": "Check if the page is responsive.",
+        })
 
 
 # ── Tool: Screenshot ───────────────────────────────────────────────────
 
-@mcp.tool()
-def vision_browser_screenshot(full_page: bool = False) -> dict:
+
+@mcp.tool(
+    name="vision_browser_screenshot",
+    annotations={
+        "title": "Take Screenshot",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def vision_browser_screenshot(params: ScreenshotInput) -> str:
     """Take a screenshot of the current page.
 
-    For AI clients that support image display, the screenshot will be shown.
+    For AI clients that support images, the screenshot will be displayed.
     For text-only clients, returns page state information.
 
     Args:
-        full_page: Whether to capture the full scrollable page (default: False, captures viewport).
+        params.full_page: Capture full scrollable page (default: false = viewport)
 
     Returns:
-        Dictionary with screenshot path and page state.
+        str: JSON with screenshot info and page state.
+
+    Examples:
+        - Viewport screenshot: full_page=false
+        - Full page screenshot: full_page=true
     """
     import tempfile
 
-    global _screenshot_files
-    browser = _get_browser()
+    state = _get_state(ctx=None)  # type: ignore
+
+    if state.browser is None:
+        return json.dumps({"success": False, "error": "Browser not connected"})
 
     try:
-        shot_path = Path(tempfile.gettempdir()) / f"vision-browser-mcp-{int(time.time())}.png"
-        browser._page.screenshot(path=str(shot_path), full_page=full_page)
-        _screenshot_files.append(str(shot_path))
+        shot_path = os.path.join(
+            tempfile.gettempdir(), f"vision-browser-mcp-{int(time.time())}.png"
+        )
+        state.browser._page.screenshot(path=shot_path, full_page=params.full_page)
 
-        url = browser.get_url()
-        title = browser.get_title()
+        url = state.browser.get_url()
+        title = state.browser.get_title()
 
-        return {
+        return json.dumps({
             "success": True,
-            "screenshot_path": str(shot_path),
+            "screenshot_path": shot_path,
             "url": url,
             "title": title,
-            "full_page": full_page,
-            "message": "Screenshot saved. If your client supports images, it should be displayed.",
-        }
+            "full_page": params.full_page,
+            "message": (
+                "Screenshot saved. If your client supports images, "
+                "it should be displayed above."
+            ),
+        })
     except Exception as e:
-        return {
+        return json.dumps({
             "success": False,
-            "error": str(e),
-            "suggestion": "Check if the browser is running and the page is loaded.",
-        }
+            "error": str(e)[:200],
+            "suggestion": "Check if the browser is running.",
+        })
 
 
-def _cleanup_screenshots() -> None:
-    """Remove temp screenshot files."""
-    global _screenshot_files
-    import os
-
-    for path in _screenshot_files:
-        try:
-            if os.path.exists(path):
-                os.unlink(path)
-        except OSError:
-            pass
-    _screenshot_files = []
+# ── Tool: Execute (High-Level AI Task) ─────────────────────────────────
 
 
-# ── Tool: Execute Task (High-Level) ────────────────────────────────────
-
-@mcp.tool()
-def vision_browser_execute(task: str) -> dict:
+@mcp.tool(
+    name="vision_browser_execute",
+    annotations={
+        "title": "Execute High-Level Task",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def vision_browser_execute(params: ExecuteInput) -> str:
     """Execute a high-level natural language task using AI reasoning.
 
     This is the most powerful tool — describe what you want to accomplish
     in natural language and the AI will plan and execute it automatically.
 
+    The AI will:
+    1. Analyze the current page state
+    2. Plan a sequence of actions
+    3. Execute them via Playwright
+    4. Return results
+
+    Requires NVIDIA API key (NVIDIA_API_KEY environment variable).
+
     Args:
-        task: Natural language description of what to accomplish.
-            Examples:
-            - "Search for 'Python tutorial' on Google"
-            - "Go to GitHub and find the top Python repositories"
-            - "Fill the login form with user@example.com and password123"
+        params.task: Natural language task description
 
     Returns:
-        Dictionary with task execution result including status, turns taken,
-        actions performed, and final page state.
+        str: JSON with task execution results including actions taken,
+        success count, and final page state.
 
-    Note:
-        This requires NVIDIA API key (NVIDIA_API_KEY environment variable).
-        The task may take 10-60 seconds depending on complexity.
+    Examples:
+        - "Search for 'Python tutorial' on Google"
+        - "Go to GitHub and find trending Python repos"
+        - "Fill the login form with user@example.com and password123"
     """
-    browser = _get_browser()
-    vision = _get_vision()
+    state = _get_state(ctx=None)  # type: ignore
+
+    if state.browser is None:
+        return json.dumps({"success": False, "error": "Browser not connected"})
+    if state.vision is None:
+        return json.dumps({
+            "success": False,
+            "error": "Vision client not initialized",
+            "suggestion": "Set NVIDIA_API_KEY environment variable.",
+        })
 
     try:
-        url = browser.get_url()
-        title = browser.get_title()
+        url = state.browser.get_url()
+        title = state.browser.get_title()
+        elements = state.browser.get_interactive_elements()
 
-        # Get elements for context
-        elements = browser.get_interactive_elements()
-
-        # Build prompt for text-only analysis
-        element_lines = []
+        # Build element text for prompt
+        el_lines = []
         for i, el in enumerate(elements[:30], 1):
             role = el.get("role", "")
             name = el.get("name", "")
             if name:
-                element_lines.append(f"  [{i}] role={role}, name={name}")
+                el_lines.append(f"  [{i}] role={role}, name={name}")
             else:
-                element_lines.append(f"  [{i}] role={role}")
+                el_lines.append(f"  [{i}] role={role}")
+        el_text = "\n".join(el_lines) if el_lines else "  (none)"
 
-        element_text = "\n".join(element_lines) if element_lines else "  (none)"
-
-        system_prompt = """\
-You are a browser automation agent. Analyze the page state and task, then return actions as JSON.
-
-AVAILABLE ACTIONS:
-- click: Click element by index (e.g., {"action": "click", "element": 5})
-- fill: Fill input by index with text (e.g., {"action": "fill", "element": 3, "text": "hello"})
-- press: Press a key (e.g., {"action": "press", "key": "Enter"})
-- scroll: Scroll page (e.g., {"action": "scroll", "direction": "down"})
-- navigate: Go to a URL (e.g., {"action": "navigate", "url": "https://example.com"})
-
-RULES:
-1. Use the ELEMENT NUMBER to reference elements.
-2. Return ONLY valid JSON.
-3. Set "done" to true ONLY when task is complete.
-
-RESPONSE FORMAT:
-{"actions": [{"action": "fill", "element": 3, "text": "query"}], "done": false, "reasoning": "why"}
-"""
-
-        user_prompt = (
-            f"TASK: {task}\n\n"
-            f"CURRENT PAGE:\n"
-            f"URL: {url}\n"
-            f"TITLE: {title}\n\n"
-            f"INTERACTIVE ELEMENTS:\n{element_text}\n\n"
-            f"Return ONLY JSON with actions to accomplish the task."
+        system_prompt = (
+            "You are a browser automation agent. Analyze the page state "
+            "and task, then return actions as JSON.\n\n"
+            "ACTIONS: click, fill, press, scroll, navigate, wait\n"
+            "Reference elements by index number, e.g., {\"action\": \"fill\", "
+            "\"element\": 3, \"text\": \"query\"}\n"
+            "Set done=true ONLY when task is complete.\n\n"
+            "FORMAT: {\"actions\": [...], \"done\": false, \"reasoning\": \"...\"}"
         )
 
-        result = vision.analyze_page(
+        user_prompt = (
+            f"TASK: {params.task}\n\n"
+            f"PAGE: {url} — {title}\n\n"
+            f"ELEMENTS:\n{el_text}\n\n"
+            f"Return ONLY JSON with actions."
+        )
+
+        result = state.vision.analyze_page(
             url=url,
             title=title,
             elements=elements,
-            task=task,
+            task=params.task,
             system_prompt=system_prompt,
             prompt_override=user_prompt,
         )
 
         actions = result.get("actions", [])
-        done = result.get("done", False)
-        reasoning = result.get("reasoning", "")
+        if not isinstance(actions, list):
+            actions = []
 
         # Execute actions
         success_count = 0
         action_results = []
         for action in actions:
             act = action.get("action", "")
-            element_idx = action.get("element")
+            idx = action.get("element")
 
             try:
-                if act == "click" and element_idx:
-                    if 1 <= element_idx <= len(elements):
-                        selector = elements[element_idx - 1].get("selector")
-                        if selector:
-                            browser._page.click(selector, timeout=30000)
-                            success_count += 1
-                            action_results.append(f"✅ Clicked element {element_idx}")
-                            try:
-                                browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
-                            except Exception:
-                                pass
-                        else:
-                            action_results.append(f"❌ Element {element_idx} has no selector")
+                if act == "click" and idx and 1 <= idx <= len(elements):
+                    sel = elements[idx - 1].get("selector")
+                    if sel:
+                        state.browser._page.click(sel, timeout=30000)
+                        _wait_for_load(state.browser)
+                        success_count += 1
+                        action_results.append(f"OK Clicked element {idx}")
                     else:
-                        action_results.append(f"❌ Element {element_idx} out of range")
+                        action_results.append(f"FAIL Element {idx} no selector")
 
-                elif act == "fill" and element_idx:
-                    if 1 <= element_idx <= len(elements):
-                        selector = elements[element_idx - 1].get("selector")
-                        text = action.get("text", "")
-                        if selector:
-                            browser._page.fill(selector, text, timeout=30000)
-                            success_count += 1
-                            action_results.append(f"✅ Filled element {element_idx} with: {text[:40]}")
-                        else:
-                            action_results.append(f"❌ Element {element_idx} has no selector")
+                elif act == "fill" and idx and 1 <= idx <= len(elements):
+                    sel = elements[idx - 1].get("selector")
+                    text = action.get("text", "")
+                    if sel:
+                        state.browser._page.fill(sel, text, timeout=30000)
+                        success_count += 1
+                        action_results.append(f"OK Filled element {idx}")
                     else:
-                        action_results.append(f"❌ Element {element_idx} out of range")
+                        action_results.append(f"FAIL Element {idx} no selector")
 
                 elif act == "press":
                     key = action.get("key", "Enter")
-                    browser._page.keyboard.press(key)
-                    success_count += 1
-                    action_results.append(f"✅ Pressed {key}")
-                    if key == "Enter":
-                        try:
-                            browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
-                        except Exception:
-                            pass
+                    if key in _ALLOWED_KEYS:
+                        state.browser._page.keyboard.press(key)
+                        success_count += 1
+                        action_results.append(f"OK Pressed {key}")
+                        if key == "Enter":
+                            _wait_for_load(state.browser)
 
                 elif act == "scroll":
                     direction = action.get("direction", "down")
-                    browser.scroll(direction)
+                    state.browser.scroll(direction)
                     success_count += 1
-                    action_results.append(f"✅ Scrolled {direction}")
+                    action_results.append(f"OK Scrolled {direction}")
 
                 elif act == "navigate":
                     nav_url = action.get("url", "")
-                    if nav_url.startswith(("http://", "https://")):
-                        browser.open(nav_url)
+                    if nav_url.lower().startswith(("http://", "https://")):
+                        state.browser.open(nav_url)
+                        _wait_for_load(state.browser)
                         success_count += 1
-                        action_results.append(f"✅ Navigated to {nav_url}")
+                        action_results.append(f"OK Navigated to {nav_url}")
 
                 else:
-                    action_results.append(f"⚠️ Unknown action: {act}")
+                    action_results.append(f"SKIP Unknown action: {act}")
 
             except Exception as e:
-                action_results.append(f"❌ Failed: {str(e)[:80]}")
+                action_results.append(f"FAIL {str(e)[:80]}")
 
-        # Get final page state
-        final_url = browser.get_url()
-        final_title = browser.get_title()
+        final_url = state.browser.get_url()
+        final_title = state.browser.get_title()
 
-        return {
+        return json.dumps({
             "success": True,
-            "task": task,
-            "reasoning": reasoning,
+            "task": params.task,
+            "reasoning": result.get("reasoning", ""),
             "actions_planned": len(actions),
             "actions_succeeded": success_count,
-            "actions_failed": len(actions) - success_count,
             "action_details": action_results,
-            "done": done,
+            "done": result.get("done", False),
             "final_url": final_url,
             "final_title": final_title,
-        }
+        }, indent=2)
 
     except Exception as e:
-        return {
+        return json.dumps({
             "success": False,
-            "task": task,
-            "error": str(e),
-            "suggestion": "Check that NVIDIA_API_KEY is set and the browser is running.",
-        }
+            "task": params.task,
+            "error": str(e)[:200],
+            "suggestion": "Check NVIDIA_API_KEY and browser connection.",
+        })
 
 
-# ── Server Entry Point ─────────────────────────────────────────────────
+# ── Entry Point ────────────────────────────────────────────────────────
+
 
 def main() -> None:
     """Run the MCP server via stdio."""
     import sys
 
-    # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        stream=sys.stderr,  # MCP uses stdout for protocol, stderr for logs
+        stream=sys.stderr,
     )
-
     mcp.run()
 
 
