@@ -39,15 +39,15 @@ class TestDiffScreenshotConfig:
 class TestDiffScreenshotIntegration:
     """Test DifferentialScreenshot is initialized correctly in FastOrchestrator."""
 
-    def test_diff_not_initialized_when_disabled(self):
-        """When auto_diff_screenshots is False, diff_screenshot should be None."""
+    def test_diff_always_enabled_for_reliable_change_detection(self):
+        """Diff screenshot is always enabled for reliable change detection."""
         from unittest.mock import patch
         from vision_browser.fast_orchestrator import FastOrchestrator
 
         cfg = AppConfig()
         with patch("vision_browser.fast_orchestrator.PlaywrightBrowser"):
             orchestrator = FastOrchestrator(cfg)
-        assert orchestrator.diff_screenshot is None
+        assert orchestrator.diff_screenshot is not None
         assert orchestrator._diff_log == []
 
     def test_diff_initialized_when_auto_diff_enabled(self):

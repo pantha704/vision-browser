@@ -105,10 +105,8 @@ class FastOrchestrator:
         self.screenshots = ScreenshotManager(keep=keep_screenshots, max_retain=20)
         self._shutdown_requested = False
 
-        # Differential screenshot integration (opt-in)
-        diff_enabled = (
-            cfg.orchestrator.auto_diff_screenshots or cfg.orchestrator.diff_mode
-        )
+        # Differential screenshot integration (enabled by default for fast mode)
+        diff_enabled = True  # Always enable for reliable change detection
         self.diff_screenshot: DifferentialScreenshot | None = None
         if diff_enabled:
             self.diff_screenshot = DifferentialScreenshot(
@@ -259,16 +257,19 @@ class FastOrchestrator:
                     task=task, url=url, title=title, element_list=element_list
                 )
 
-                # 3. Send to vision model (skip if screenshot unchanged)
+                # 3. Analyze page — use text-based (reliable JSON) or vision (unreliable)
+                # Vision models produce prose, not JSON. Use text model for action planning.
                 if diff_changed or not self._last_vision_result:
-                    console.print("  🧠 Sending to vision model...")
-                    result = self.vision.analyze(
-                        str(self.screenshots.current_path), prompt, schema=ACTION_SCHEMA
-                    )
+                    console.print("  🧠 Analyzing page...")
+                    try:
+                        result = self._analyze_with_text(shot, prompt)
+                    except Exception as e:
+                        logger.warning(f"Text analysis failed: {e}")
+                        result = {"actions": [], "done": False, "reasoning": str(e)}
                     self._last_vision_result = result
                 else:
                     console.print(
-                        "  🧠 Screenshot unchanged — skipping Vision API (using cached result)"
+                        "  🧠 Page unchanged — using cached analysis"
                     )
                     result = self._last_vision_result
 
@@ -389,6 +390,37 @@ class FastOrchestrator:
                 console.print("\n[bold yellow]⏱️ Max turns reached[/bold yellow]")
                 self._task_status = "max_turns_reached"
                 self._task_final_url = url
+
+    def _analyze_with_text(self, shot: dict, prompt: str) -> dict:
+        """Fallback: use text-only model when vision model fails.
+        
+        Uses badge legend (text) instead of screenshot for analysis.
+        This is much more reliable since text models produce valid JSON.
+        """
+        legend = shot.get("legend", [])
+        element_list = self._build_element_list(legend, self.cfg.orchestrator.max_prompt_elements)
+        
+        text_prompt = (
+            f"Return ONLY valid JSON. No markdown, no explanation.\n\n"
+            f"{prompt}\n\n"
+            f"Elements available:\n{element_list}\n\n"
+            f'Response format: {{"actions": [], "done": false, "reasoning": "..."}}'
+        )
+        
+        try:
+            # Use vision.analyze_page which handles Groq/NIM routing
+            return self.vision.analyze_page(
+                url=shot.get("url", ""),
+                title=shot.get("title", ""),
+                elements=[],
+                task=prompt,
+                system_prompt=SYSTEM_PROMPT,
+                prompt_override=text_prompt,
+            )
+        except Exception as e:
+            logger.debug(f"Text analysis failed: {e}")
+        
+        return {"actions": [], "done": False, "reasoning": "Could not determine actions"}
 
     def _build_element_list(self, legend: list[str], max_elements: int) -> str:
         """Build element list from badge legend."""

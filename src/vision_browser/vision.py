@@ -33,7 +33,11 @@ class VisionClient:
         self._max_retries = self.orchestrator_cfg.get("retry_attempts", 3)
         self._backoff_base = self.orchestrator_cfg.get("retry_backoff_base", 1.0)
         self._rate_delay = self.orchestrator_cfg.get("rate_limit_delay", 0.5)
-        self._last_request_time = 0.0
+        self._rate_state_file = self.orchestrator_cfg.get(
+            "rate_limit_state_file",
+            str(Path.home() / ".local" / "share" / "vision-browser" / "rate_limit.json"),
+        )
+        self._last_request_time = self._load_rate_limit_state()
         self._groq: Groq | None = None
         self._circuit_breaker = CircuitBreaker(
             name="vision-api",
@@ -142,7 +146,41 @@ class VisionClient:
     ) -> dict:
         """Call NIM analyze with rate limiting applied."""
         self._apply_rate_limit()
-        return self._nim_analyze(image_path, prompt, schema)
+        result = self._nim_analyze(image_path, prompt, schema)
+        self._save_rate_limit_state()
+        return result
+
+    def _load_rate_limit_state(self) -> float:
+        """Load last request time from persistent state."""
+        try:
+            state_path = Path(self._rate_state_file)
+            if state_path.exists():
+                data = json.loads(state_path.read_text())
+                last_time = data.get("last_request_time", 0.0)
+                elapsed = time.monotonic() - last_time
+                if elapsed < self._rate_delay:
+                    remaining = self._rate_delay - elapsed
+                    logger.debug(
+                        f"Rate limit from previous session: waiting {remaining:.1f}s"
+                    )
+                    time.sleep(remaining)
+                return last_time
+        except Exception as e:
+            logger.debug(f"Failed to load rate limit state: {e}")
+        return 0.0
+
+    def _save_rate_limit_state(self) -> None:
+        """Save current request time to persistent state."""
+        try:
+            state_path = Path(self._rate_state_file)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_data = {
+                "last_request_time": self._last_request_time,
+                "current_delay": self._rate_delay,
+            }
+            state_path.write_text(json.dumps(state_data))
+        except Exception as e:
+            logger.debug(f"Failed to save rate limit state: {e}")
 
     def _apply_rate_limit(self) -> None:
         """Enforce minimum delay between requests."""
@@ -282,7 +320,8 @@ class VisionClient:
                         }
                     ],
                     "max_tokens": self.cfg.nim_max_tokens,
-                    "temperature": 0.1,
+                    "temperature": 0.0,
+                    "response_format": {"type": "json_object"},
                 },
                 timeout=120,
             )

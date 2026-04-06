@@ -122,13 +122,19 @@ class TestRunLoop:
                 "done": True,
                 "reasoning": "Filling search field",
             }
+            mock_vision.analyze_page.return_value = {
+                "actions": [{"action": "fill", "element": 1, "text": "hello"}],
+                "done": True,
+                "reasoning": "Filling search field",
+            }
 
             orchestrator = FastOrchestrator(cfg)
             orchestrator._verify_completion = MagicMock(return_value=True)
             orchestrator._run_loop("Search for hello")
 
             mock_browser.screenshot.assert_called()
-            mock_vision.analyze.assert_called()
+            # Fast orchestrator uses analyze_page (text-based) for reliable JSON
+            mock_vision.analyze_page.assert_called()
 
     def test_run_loop_shutdown_requested(self):
         """Test run loop exits when shutdown requested."""

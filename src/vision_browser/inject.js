@@ -8,6 +8,7 @@
   const BADGE_STYLE = `
     position: absolute !important;
     z-index: 999999 !important;
+    pointer-events: none !important;
     background: rgba(255, 68, 68, 0.9) !important;
     color: white !important;
     font-size: 12px !important;
