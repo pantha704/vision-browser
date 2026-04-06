@@ -44,6 +44,7 @@ _vision: VisionClient | None = None
 _cfg: AppConfig | None = None
 _element_cache: list[dict[str, Any]] = []
 _server_start_time: float = 0.0
+_screenshot_files: list[str] = []  # Track temp screenshots for cleanup
 
 
 def _get_browser() -> PlaywrightBrowser:
@@ -469,11 +470,13 @@ def vision_browser_screenshot(full_page: bool = False) -> dict:
     """
     import tempfile
 
+    global _screenshot_files
     browser = _get_browser()
 
     try:
         shot_path = Path(tempfile.gettempdir()) / f"vision-browser-mcp-{int(time.time())}.png"
         browser._page.screenshot(path=str(shot_path), full_page=full_page)
+        _screenshot_files.append(str(shot_path))
 
         url = browser.get_url()
         title = browser.get_title()
@@ -484,7 +487,7 @@ def vision_browser_screenshot(full_page: bool = False) -> dict:
             "url": url,
             "title": title,
             "full_page": full_page,
-            "message": "Screenshot saved. If your client supports images, it should be displayed. Otherwise, see the page details above.",
+            "message": "Screenshot saved. If your client supports images, it should be displayed.",
         }
     except Exception as e:
         return {
@@ -492,6 +495,20 @@ def vision_browser_screenshot(full_page: bool = False) -> dict:
             "error": str(e),
             "suggestion": "Check if the browser is running and the page is loaded.",
         }
+
+
+def _cleanup_screenshots() -> None:
+    """Remove temp screenshot files."""
+    global _screenshot_files
+    import os
+
+    for path in _screenshot_files:
+        try:
+            if os.path.exists(path):
+                os.unlink(path)
+        except OSError:
+            pass
+    _screenshot_files = []
 
 
 # ── Tool: Execute Task (High-Level) ────────────────────────────────────

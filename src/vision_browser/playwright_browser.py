@@ -59,6 +59,28 @@ _INJECT_SCRIPT = Path(__file__).parent / "inject.js"
 class PlaywrightBrowser:
     """Persistent browser controller via Playwright + CDP."""
 
+    # Known CAPTCHA/error page indicators
+    _CAPTCHA_SELECTORS = [
+        "#g-recaptcha",
+        ".g-recaptcha",
+        "#recaptcha",
+        ".h-captcha",
+        "#h-captcha",
+        'iframe[src*="recaptcha"]',
+        'iframe[src*="hcaptcha"]',
+    ]
+    _ERROR_PAGE_INDICATORS = [
+        "Server Not Found",
+        "This site can't be reached",
+        "ERR_NAME_NOT_RESOLVED",
+        "ERR_CONNECTION_REFUSED",
+        "ERR_CONNECTION_TIMED_OUT",
+        "404 Not Found",
+        "500 Internal Server Error",
+        "502 Bad Gateway",
+        "503 Service Unavailable",
+    ]
+
     def __init__(self, cfg: BrowserConfig | None = None):
         self.cfg = cfg or BrowserConfig()
         self._playwright = None
@@ -68,8 +90,10 @@ class PlaywrightBrowser:
         self._badge_map: dict[int, str] = {}  # badge_num -> selector
         self._badge_cache: list[dict] = []  # Raw badge data
         self._session_manager = SessionManager() if self.cfg.session_name else None
+        self._page_crashed = False
         self._connect()
         self._restore_session()
+        self._setup_crash_handler()
 
     def _connect(self) -> None:
         """Connect to browser via CDP or launch new instance."""
@@ -159,6 +183,53 @@ class PlaywrightBrowser:
             logger.info(f"Restored session: {self.cfg.session_name}")
         else:
             logger.debug(f"No session found: {self.cfg.session_name}")
+
+    def _setup_crash_handler(self) -> None:
+        """Register page crash handler for crash detection."""
+        if self._page is None:
+            return
+        try:
+            self._page.on("crash", lambda page: self._on_page_crash(page))
+        except Exception as e:
+            logger.debug(f"Failed to setup crash handler: {e}")
+
+    def _on_page_crash(self, page: Page) -> None:
+        """Handle page crash event."""
+        self._page_crashed = True
+        logger.error(f"Page crashed: {page.url}")
+
+    def _retry_with_backoff(
+        self,
+        func,
+        max_retries: int = 2,
+        backoff_base: float = 0.5,
+    ):
+        """Retry a function with exponential backoff for transient failures."""
+        import time as _time
+
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                return func()
+            except PlaywrightError as e:
+                last_error = e
+                # Don't retry non-transient errors
+                error_str = str(e).lower()
+                if any(
+                    kw in error_str
+                    for kw in ["not found", "timeout", "target closed", "target crashed"]
+                ):
+                    if attempt < max_retries:
+                        delay = backoff_base * (2**attempt)
+                        logger.debug(
+                            f"Transient error, retrying in {delay:.1f}s: {e}"
+                        )
+                        _time.sleep(delay)
+                        continue
+                raise
+            except Exception:
+                raise
+        raise last_error
 
     def save_session(self) -> None:
         """Save current session to disk."""
@@ -397,11 +468,67 @@ class PlaywrightBrowser:
 
     def is_alive(self) -> bool:
         """Check if browser is still responsive."""
+        if self._page_crashed:
+            return False
         try:
             self._page.evaluate("1")
             return True
         except Exception:
             return False
+
+    def check_page_state(self) -> dict:
+        """Check current page state for issues.
+
+        Returns:
+            Dictionary with page state info including:
+            - crashed: Whether the page has crashed
+            - has_captcha: Whether a CAPTCHA was detected
+            - is_error_page: Whether the page shows an error
+            - error_text: Error message if detected
+            - url: Current URL
+            - title: Current page title
+        """
+        result = {
+            "crashed": self._page_crashed,
+            "has_captcha": False,
+            "is_error_page": False,
+            "error_text": "",
+            "url": "",
+            "title": "",
+        }
+
+        if self._page is None:
+            result["crashed"] = True
+            return result
+
+        try:
+            result["url"] = self._page.url
+            result["title"] = self._page.title()
+        except Exception:
+            result["crashed"] = True
+            return result
+
+        # Check for CAPTCHAs
+        try:
+            for selector in self._CAPTCHA_SELECTORS:
+                if self._page.query_selector(selector):
+                    result["has_captcha"] = True
+                    break
+        except Exception:
+            pass
+
+        # Check for error pages
+        try:
+            body_text = self._page.evaluate("() => document.body?.innerText || ''")
+            for indicator in self._ERROR_PAGE_INDICATORS:
+                if indicator in body_text:
+                    result["is_error_page"] = True
+                    result["error_text"] = indicator
+                    break
+        except Exception:
+            pass
+
+        return result
 
     # ── Playwright Semantic Locators (instant, no Vision API needed) ───
 

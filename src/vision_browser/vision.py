@@ -55,13 +55,12 @@ class VisionClient:
         After 60s timeout, one test request is allowed through.
         """
         for attempt in range(1, self._max_retries + 1):
-            # Rate limiting
-            self._apply_rate_limit()
-
             try:
-                # Circuit breaker wraps the NIM call
+                # Circuit breaker wraps the NIM call (including rate limit)
                 return self._circuit_breaker.call(
-                    lambda: self._nim_analyze(image_path, prompt, schema)
+                    lambda: self._nim_analyze_with_rate_limit(
+                        image_path, prompt, schema
+                    )
                 )
             except CircuitOpenError as e:
                 # Circuit is open -- try Groq fallback if available
@@ -79,12 +78,27 @@ class VisionClient:
                         prompt, schema, attempt
                     )
                     logger.warning(
-                        f"JSON parse failed on attempt {attempt}, retrying with stricter prompt"
+                        f"JSON parse failed on attempt {attempt}, "
+                        f"retrying with stricter prompt"
                     )
                     try:
-                        return self._nim_analyze(image_path, stricter_prompt, schema)
+                        # Also wrap retry in circuit breaker
+                        return self._circuit_breaker.call(
+                            lambda: self._nim_analyze_with_rate_limit(
+                                image_path, stricter_prompt, schema
+                            )
+                        )
                     except ModelResponseError:
                         pass  # Fall through to fallback
+                    except CircuitOpenError:
+                        # Circuit opened during retry, try Groq
+                        try:
+                            return self._groq_analyze(image_path, prompt, schema)
+                        except Exception as ge:
+                            raise VisionAPIError(
+                                f"Circuit breaker open on retry, "
+                                f"Groq fallback also failed: {ge}"
+                            ) from ge
                 # Try Groq as fallback
                 try:
                     return self._groq_analyze(image_path, prompt, schema)
@@ -93,7 +107,8 @@ class VisionClient:
 
                 if attempt == self._max_retries:
                     raise VisionAPIError(
-                        "All vision API attempts exhausted. Last error: model failed to produce valid JSON after retries"
+                        "All vision API attempts exhausted. Last error: "
+                        "model failed to produce valid JSON after retries"
                     )
 
                 backoff = self._backoff_base * (2 ** (attempt - 1))
@@ -122,6 +137,13 @@ class VisionClient:
             "Unexpected: analyze loop exited without returning or raising"
         )
 
+    def _nim_analyze_with_rate_limit(
+        self, image_path: str, prompt: str, schema: dict | None = None
+    ) -> dict:
+        """Call NIM analyze with rate limiting applied."""
+        self._apply_rate_limit()
+        return self._nim_analyze(image_path, prompt, schema)
+
     def _apply_rate_limit(self) -> None:
         """Enforce minimum delay between requests."""
         elapsed = time.monotonic() - self._last_request_time
@@ -136,7 +158,12 @@ class VisionClient:
             api_key = self.cfg.groq_api_key
             if not api_key:
                 raise VisionAPIError("GROQ_API_KEY not set")
-            self._groq = Groq(api_key=api_key)
+            # Thread-safe lazy init
+            import threading
+
+            with threading.Lock():
+                if self._groq is None:
+                    self._groq = Groq(api_key=api_key)
         return self._groq
 
     def _groq_analyze(

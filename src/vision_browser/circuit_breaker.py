@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from enum import Enum
 from typing import Any, Callable, TypeVar
@@ -27,6 +28,8 @@ class CircuitBreaker:
     the threshold, the circuit opens and calls fail immediately without
     hitting the API. After a timeout, it transitions to half-open and
     allows one test request through. If that succeeds, the circuit closes.
+
+    Thread-safe: all state transitions are protected by a lock.
 
     Usage:
         breaker = CircuitBreaker(name="vision-api", failure_threshold=5)
@@ -56,6 +59,7 @@ class CircuitBreaker:
         self.timeout = timeout
         self.success_threshold = success_threshold
 
+        self._lock = threading.Lock()
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._success_count = 0
@@ -67,21 +71,25 @@ class CircuitBreaker:
     @property
     def state(self) -> CircuitState:
         """Current circuit state."""
-        return self._state
+        with self._lock:
+            return self._state
 
     @property
     def stats(self) -> dict[str, Any]:
         """Return usage statistics."""
-        return {
-            "state": self._state.value,
-            "failure_count": self._failure_count,
-            "total_calls": self._total_calls,
-            "total_failures": self._total_failures,
-            "total_rejections": self._total_rejections,
-        }
+        with self._lock:
+            return {
+                "state": self._state.value,
+                "failure_count": self._failure_count,
+                "total_calls": self._total_calls,
+                "total_failures": self._total_failures,
+                "total_rejections": self._total_rejections,
+            }
 
     def call(self, func: Callable[[], T], **kwargs: Any) -> T:
         """Execute the wrapped function, respecting circuit state.
+
+        Thread-safe: state check and transition are atomic.
 
         Args:
             func: The function to call (should accept no args).
@@ -94,41 +102,47 @@ class CircuitBreaker:
             CircuitOpenError: If circuit is open and timeout hasn't elapsed.
             Exception: If the function raises and circuit is closed/half-open.
         """
-        self._total_calls += 1
+        with self._lock:
+            self._total_calls += 1
 
-        # Check if circuit should transition from OPEN to HALF_OPEN
-        if self._state == CircuitState.OPEN:
-            elapsed = time.monotonic() - self._last_failure_time
-            if elapsed >= self.timeout:
-                logger.info(
-                    f"[{self.name}] Circuit: OPEN → HALF_OPEN (timeout {self.timeout}s elapsed)"
-                )
-                self._state = CircuitState.HALF_OPEN
-                self._success_count = 0
-            else:
-                self._total_rejections += 1
-                remaining = self.timeout - elapsed
-                raise CircuitOpenError(
-                    f"Circuit breaker '{self.name}' is OPEN. Retry in {remaining:.0f}s.",
-                    state=self._state,
-                    retry_after=remaining,
-                )
+            # Check if circuit should transition from OPEN to HALF_OPEN
+            if self._state == CircuitState.OPEN:
+                elapsed = time.monotonic() - self._last_failure_time
+                if elapsed >= self.timeout:
+                    logger.info(
+                        f"[{self.name}] Circuit: OPEN -> HALF_OPEN "
+                        f"(timeout {self.timeout}s elapsed)"
+                    )
+                    self._state = CircuitState.HALF_OPEN
+                    self._success_count = 0
+                else:
+                    self._total_rejections += 1
+                    remaining = self.timeout - elapsed
+                    raise CircuitOpenError(
+                        f"Circuit breaker '{self.name}' is OPEN. "
+                        f"Retry in {remaining:.0f}s.",
+                        state=self._state,
+                        retry_after=remaining,
+                    )
 
+        # Execute outside the lock so long-running calls don't block others
         try:
             result = func()
-            self._on_success()
+            with self._lock:
+                self._on_success()
             return result
         except Exception:
-            self._on_failure()
+            with self._lock:
+                self._on_failure()
             raise
 
     def _on_success(self) -> None:
-        """Handle successful call."""
+        """Handle successful call. Must be called with lock held."""
         if self._state == CircuitState.HALF_OPEN:
             self._success_count += 1
             if self._success_count >= self.success_threshold:
                 logger.info(
-                    f"[{self.name}] Circuit: HALF_OPEN → CLOSED "
+                    f"[{self.name}] Circuit: HALF_OPEN -> CLOSED "
                     f"({self._success_count} consecutive successes)"
                 )
                 self._state = CircuitState.CLOSED
@@ -139,7 +153,7 @@ class CircuitBreaker:
             self._failure_count = 0
 
     def _on_failure(self) -> None:
-        """Handle failed call."""
+        """Handle failed call. Must be called with lock held."""
         self._total_failures += 1
         self._failure_count += 1
         self._last_failure_time = time.monotonic()
@@ -147,31 +161,34 @@ class CircuitBreaker:
         if self._state == CircuitState.HALF_OPEN:
             # Any failure in half-open reopens the circuit
             logger.warning(
-                f"[{self.name}] Circuit: HALF_OPEN → OPEN "
+                f"[{self.name}] Circuit: HALF_OPEN -> OPEN "
                 f"(failure during recovery test)"
             )
             self._state = CircuitState.OPEN
             self._success_count = 0
         elif self._failure_count >= self.failure_threshold:
             logger.warning(
-                f"[{self.name}] Circuit: CLOSED → OPEN "
-                f"({self._failure_count} consecutive failures, threshold={self.failure_threshold})"
+                f"[{self.name}] Circuit: CLOSED -> OPEN "
+                f"({self._failure_count} consecutive failures, "
+                f"threshold={self.failure_threshold})"
             )
             self._state = CircuitState.OPEN
 
     def reset(self) -> None:
         """Manually reset the circuit to closed state."""
-        logger.info(f"[{self.name}] Circuit: manual reset to CLOSED")
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time = 0.0
+        with self._lock:
+            logger.info(f"[{self.name}] Circuit: manual reset to CLOSED")
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = 0.0
 
     def __repr__(self) -> str:
-        return (
-            f"CircuitBreaker(name={self.name!r}, state={self._state.value}, "
-            f"failures={self._failure_count}/{self.failure_threshold})"
-        )
+        with self._lock:
+            return (
+                f"CircuitBreaker(name={self.name!r}, state={self._state.value}, "
+                f"failures={self._failure_count}/{self.failure_threshold})"
+            )
 
 
 class CircuitOpenError(Exception):
