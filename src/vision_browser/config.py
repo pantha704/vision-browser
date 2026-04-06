@@ -50,6 +50,7 @@ class BrowserConfig(BaseModel):
     timeout_ms: int = Field(default=30000, ge=5000, le=120000)
     session_name: str = ""  # Empty = no persistence
     cdp_url: Optional[str] = None  # None = launch local Chromium; set to Brave CDP
+    headless: bool = True  # True = no GUI; False = visible browser window
 
     @field_validator("viewport")
     @classmethod

@@ -149,6 +149,16 @@ def main() -> None:
         action="store_true",
         help="Enable debug mode: save screenshots after each action to /tmp/vision-browser-debug/",
     )
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Show browser GUI (default: headless, no window)",
+    )
+    parser.add_argument(
+        "--keep-alive",
+        action="store_true",
+        help="Keep browser open after task completes so you can take over",
+    )
 
     args = parser.parse_args()
     _setup_logging(verbose=args.verbose)
@@ -181,6 +191,11 @@ def main() -> None:
     # If --brave not passed, use default from config (null = launch Playwright Chromium)
     if args.session:
         cfg.browser.session_name = args.session
+    if args.headed:
+        cfg.browser.headless = False
+    if args.keep_alive:
+        # Don't close browser after task — user can take over
+        pass  # handled in orchestrator close logic
 
     try:
         from vision_browser.orchestrator import Orchestrator
@@ -191,7 +206,7 @@ def main() -> None:
             console.print(
                 "[bold blue]⚡ Using locator-based orchestrator (Playwright semantic locators)[/bold blue]"
             )
-            orchestrator = LocatorOrchestrator(cfg, debug=args.debug)
+            orchestrator = LocatorOrchestrator(cfg, debug=args.debug, keep_alive=args.keep_alive)
             orchestrator.run(args.task, url=args.url)
         elif args.fast:
             console.print(

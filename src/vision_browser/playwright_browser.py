@@ -131,7 +131,7 @@ class PlaywrightBrowser:
         else:
             # Launch new browser
             launch_args = {
-                "headless": True,
+                "headless": self.cfg.headless,
                 "timeout": self.cfg.timeout_ms,
             }
             # Add --no-sandbox for Linux
@@ -146,7 +146,8 @@ class PlaywrightBrowser:
                     },
                 )
                 self._page = self._context.new_page()
-                logger.info("Launched new headless browser")
+                mode = "headless" if self.cfg.headless else "headed (visible)"
+                logger.info(f"Launched new {mode} browser")
             except Exception as e:
                 raise BrowserError(f"Failed to launch browser: {e}") from e
 

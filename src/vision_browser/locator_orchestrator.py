@@ -106,8 +106,9 @@ class LocatorOrchestrator:
     5. Report success/failure back to model next turn
     """
 
-    def __init__(self, cfg: AppConfig, debug: bool = False):
+    def __init__(self, cfg: AppConfig, debug: bool = False, keep_alive: bool = False):
         self.cfg = cfg
+        self.keep_alive = keep_alive
         self.browser = PlaywrightBrowser(cfg.browser)
         self.vision = VisionClient(
             cfg.vision,
@@ -169,7 +170,14 @@ class LocatorOrchestrator:
         self.close()
 
     def close(self) -> None:
-        """Clean shutdown."""
+        """Clean shutdown. Skip if keep_alive is True (user takes over)."""
+        if self.keep_alive:
+            current_url = self.browser.get_url() or "unknown"
+            console.print("\n[yellow]⏸️ Browser kept alive for user take-over[/yellow]")
+            console.print(f"   Current URL: {current_url}")
+            console.print("   [dim]Close the browser window manually when done.[/dim]")
+            # Don't close the browser — leave it open for user interaction
+            return
         self.browser.close()
 
     def _run_loop(self, task: str) -> None:
