@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from urllib.parse import urlparse
 
@@ -21,6 +22,24 @@ from vision_browser.vision import VisionClient
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+def _capture_debug_screenshot(browser: PlaywrightBrowser, debug_dir: str, label: str) -> str | None:
+    """Capture a debug screenshot with timestamp and label."""
+    if not debug_dir:
+        return None
+    try:
+        os.makedirs(debug_dir, exist_ok=True)
+        timestamp = int(time.time())
+        path = os.path.join(debug_dir, f"{timestamp}_{label}.png")
+        browser._page.screenshot(path=path, full_page=False)
+        url = browser.get_url() or ""
+        logger.debug(f"Debug screenshot: {path} (URL: {url})")
+        console.print(f"    📸 Screenshot: {os.path.basename(path)}")
+        return path
+    except Exception as e:
+        logger.debug(f"Screenshot failed: {e}")
+        return None
 
 # System prompt — model references elements by INDEX number
 LOCATOR_SYSTEM_PROMPT = """\
@@ -87,7 +106,7 @@ class LocatorOrchestrator:
     5. Report success/failure back to model next turn
     """
 
-    def __init__(self, cfg: AppConfig):
+    def __init__(self, cfg: AppConfig, debug: bool = False):
         self.cfg = cfg
         self.browser = PlaywrightBrowser(cfg.browser)
         self.vision = VisionClient(
@@ -98,6 +117,9 @@ class LocatorOrchestrator:
                 "rate_limit_delay": cfg.orchestrator.rate_limit_delay,
             },
         )
+        self.debug = debug
+        self._debug_dir = "/tmp/vision-browser-debug"
+        self._action_count = 0
         self._shutdown_requested = False
         self._error_count = 0
         self._last_action_key = ""
@@ -268,6 +290,12 @@ class LocatorOrchestrator:
                     # Refresh URL after actions (navigation may have changed it)
                     url = self.browser.get_url() or url
                     title = self.browser.get_title() or title
+
+                    # Debug: capture screenshot after actions
+                    if self.debug:
+                        _capture_debug_screenshot(
+                            self.browser, self._debug_dir, "after_actions"
+                        )
 
                     self._task_total_actions += len(actions)
                     self._task_succeeded_actions += success_count

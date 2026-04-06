@@ -144,6 +144,11 @@ def main() -> None:
         action="store_true",
         help="Use locator-based mode (Playwright semantic locators, no Vision API for element finding)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode: save screenshots after each action to /tmp/vision-browser-debug/",
+    )
 
     args = parser.parse_args()
     _setup_logging(verbose=args.verbose)
@@ -185,7 +190,7 @@ def main() -> None:
             console.print(
                 "[bold blue]⚡ Using locator-based orchestrator (Playwright semantic locators)[/bold blue]"
             )
-            orchestrator = LocatorOrchestrator(cfg)
+            orchestrator = LocatorOrchestrator(cfg, debug=args.debug)
             orchestrator.run(args.task, url=args.url)
         elif args.fast:
             console.print(
