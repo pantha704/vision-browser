@@ -167,7 +167,8 @@ class LocatorOrchestrator:
 
         self._run_loop(task)
         self._print_summary()
-        self.close()
+        # Don't call close() here — the CLI calls close() after run()
+        # This allows keep_alive to work properly (called exactly once)
 
     def close(self) -> None:
         """Clean shutdown. If keep_alive, enter interactive take-over mode."""
