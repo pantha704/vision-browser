@@ -42,13 +42,14 @@ AVAILABLE ACTIONS:
 
 RULES:
 1. Use the ELEMENT NUMBER to reference elements — do NOT guess selectors.
-2. If you need to search: fill the search input index, then press Enter.
-3. If you need to click a link: use the element number.
-4. Return ONLY valid JSON. No markdown, no explanation.
-5. Set "done" to true ONLY when the task is fully complete.
+2. To search: fill the search input index, then press Enter.
+3. To click a VIDEO on search results: use "click_first_video" action — do NOT use regular click.
+4. To click a NON-video link: use regular click with element number.
+5. Return ONLY valid JSON. No markdown, no explanation.
+6. Set "done" to true ONLY when the task is fully complete.
 
 RESPONSE FORMAT:
-{"actions": [{"action": "fill", "element": 3, "text": "query"}, {"action": "press", "key": "Enter"}], "done": false, "reasoning": "why"}
+{"actions": [{"action": "fill", "element": 3, "text": "query"}, {"action": "press", "key": "Enter"}, {"action": "click_first_video"}], "done": false, "reasoning": "why"}
 """
 
 LOCATOR_USER_PROMPT = """\
@@ -264,6 +265,10 @@ class LocatorOrchestrator:
                     action_feedback = feedback
                     console.print(f"  ✅ {success_count}/{len(actions)} succeeded")
 
+                    # Refresh URL after actions (navigation may have changed it)
+                    url = self.browser.get_url() or url
+                    title = self.browser.get_title() or title
+
                     self._task_total_actions += len(actions)
                     self._task_succeeded_actions += success_count
                     self._task_failed_actions += len(actions) - success_count
@@ -397,6 +402,8 @@ class LocatorOrchestrator:
                 match act:
                     case "click":
                         if selector:
+                            logger.debug(f"Clicking: {selector}")
+                            console.print(f"    [dim]click -> {selector}[/dim]")
                             self.browser._page.click(selector, timeout=30000)
                             success += 1
                             feedback.append(f"OK Clicked {el_info}")
@@ -419,6 +426,8 @@ class LocatorOrchestrator:
                     case "fill":
                         text = action.get("text", "")
                         if selector:
+                            logger.debug(f"Filling: {selector} with: {text[:40]}")
+                            console.print(f"    [dim]fill -> {selector} = {text[:40]}[/dim]")
                             self.browser._page.fill(selector, text, timeout=30000)
                             success += 1
                             feedback.append(f"OK Filled {el_info}")
@@ -430,12 +439,19 @@ class LocatorOrchestrator:
                         if key not in _ALLOWED_KEYS:
                             feedback.append(f"FAIL Key '{key}' not allowed")
                             continue
+                        logger.debug(f"Pressing: {key}")
+                        console.print(f"    [dim]press -> {key}[/dim]")
                         self.browser._page.keyboard.press(key)
                         success += 1
                         feedback.append(f"OK Pressed {key}")
                         if key == "Enter":
+                            # Wait for navigation to complete before next action
                             self._wait_for_load()
                             current_elements = self.browser.get_interactive_elements()
+                            # Log URL after navigation for debugging
+                            after_url = self.browser.get_url() or ""
+                            logger.debug(f"After Enter wait, URL: {after_url}")
+                            console.print(f"    [dim]After wait, URL: {after_url}[/dim]")
 
                     case "scroll":
                         direction = action.get("direction", "down")
@@ -481,29 +497,77 @@ class LocatorOrchestrator:
                         feedback.append(f"FAIL Unknown action: {act}")
 
             except Exception as e:
-                logger.debug(f"Action failed: {action} - {e}")
+                logger.warning(f"Action failed: {action.get('action')} with selector={selector} - {e}")
                 feedback.append(f"FAIL {el_info}: {str(e)[:80]}")
 
         return success, feedback
 
     def _wait_for_load(self) -> None:
-        """Wait for DOM content to load, silently handling timeout."""
+        """Wait for DOM content to load after navigation actions.
+
+        For SPA navigation (like YouTube search), also waits for URL to change
+        to an expected pattern (e.g., /results for search, /watch for video).
+        """
+        current_url = self.browser.get_url() or ""
         try:
             self.browser._page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except Exception:
+            pass
+
+        # For SPA navigation, wait for URL to actually change
+        if current_url:
+            try:
+                self.browser._page.wait_for_function(
+                    f"() => location.href !== {json.dumps(current_url)}",
+                    timeout=10000,
+                )
+            except Exception:
+                pass
+
+        # For YouTube search: wait for /results URL specifically
+        if "youtube.com" in current_url:
+            try:
+                self.browser._page.wait_for_function(
+                    "() => location.href.includes('/results') || location.href.includes('/watch')",
+                    timeout=10000,
+                )
+            except Exception:
+                pass
+            # YouTube SPA needs extra time to render search results after URL changes
+            try:
+                self.browser._page.wait_for_timeout(3000)
+            except Exception:
+                pass
+
+        # Settle delay for JavaScript-rendered content
+        try:
+            self.browser._page.wait_for_timeout(1500)
         except Exception:
             pass
 
     def _click_first_video(self) -> bool:
         """Find and click the first video result on a search results page.
 
-        Looks for <a> elements with /watch in href that are visible.
+        Prioritizes YouTube search result videos (ytd-video-renderer) over
+        sidebar/featured videos.
         """
         try:
             result = self.browser._page.evaluate("""() => {
-                const links = Array.from(document.querySelectorAll('a[href*="/watch"]'));
-                for (const link of links) {
+                // Try search result videos first (ytd-video-renderer is the search result container)
+                const searchLinks = document.querySelectorAll(
+                    'ytd-video-renderer a#video-title[href*="/watch"]'
+                );
+                for (const link of searchLinks) {
                     const rect = link.getBoundingClientRect();
                     if (rect.width > 50 && rect.height > 20 && rect.top > 100) {
+                        return { href: link.href, text: link.textContent?.trim().slice(0, 80) };
+                    }
+                }
+                // Fallback: any /watch link with larger size (likely a main content video)
+                const allLinks = document.querySelectorAll('a[href*="/watch"]');
+                for (const link of allLinks) {
+                    const rect = link.getBoundingClientRect();
+                    if (rect.width > 80 && rect.height > 30 && rect.top > 100) {
                         return { href: link.href, text: link.textContent?.trim().slice(0, 80) };
                     }
                 }
@@ -511,18 +575,30 @@ class LocatorOrchestrator:
             }""")
 
             if result:
-                # Escape quotes in text to prevent selector injection
-                safe_text = result.get("text", "").replace('"', '\\"')[:30]
-                self.browser._page.click(
-                    f'a[href*="/watch"]:has-text("{safe_text}")', timeout=15000
-                )
+                # Clean up text: remove newlines, extra spaces, truncate
+                raw_text = result.get("text", "")
+                clean_text = " ".join(raw_text.split())[:40]
+                logger.debug(f"Clicking video: {clean_text}")
+                console.print(f"    [dim]click_first_video -> {clean_text}[/dim]")
+                # Navigate directly to video URL (more reliable than clicking)
+                href = result.get("href", "")
+                if href:
+                    # Convert relative URL to absolute if needed
+                    if href.startswith("/"):
+                        base_url = self.browser.get_url()
+                        from urllib.parse import urljoin
+                        href = urljoin(base_url, href)
+                    self.browser.open(href)
+                    self._wait_for_load()
+                    return True
+
+            # Fallback: try clicking any /watch link
+            try:
+                self.browser._page.locator('a[href*="/watch"]').first.click(timeout=15000)
                 self._wait_for_load()
                 return True
-
-            # Fallback: click any /watch link
-            self.browser._page.locator('a[href*="/watch"]').first.click(timeout=15000)
-            self._wait_for_load()
-            return True
+            except Exception:
+                return False
         except Exception as e:
             logger.debug(f"_click_first_video failed: {e}")
             return False

@@ -689,34 +689,149 @@ class PlaywrightBrowser:
                 const result = [];
                 const seen = new Set();
 
+                /**
+                 * Generate a UNIQUE, STABLE CSS selector for an element.
+                 * Strategy: id > data-testid > name > aria-label > role+text > nth-child
+                 * Only uses stable attributes — NEVER hashed/obfuscated classes.
+                 */
                 function generateSelector(el) {
                     if (!el || el === document.documentElement) return 'html';
-                    if (el.id) return `#${el.id}`;
 
-                    let sel = el.tagName.toLowerCase();
-
-                    // Add class if unique
-                    if (el.classList.length > 0) {
-                        const classes = Array.from(el.classList)
-                            .filter(c => !c.startsWith('css-') && !c.startsWith('yt-') && c.length < 20)
-                            .slice(0, 2)
-                            .map(c => CSS.escape(c))
-                            .join('.');
-                        if (classes) sel += `.${classes}`;
+                    // 1. ID — always unique
+                    if (el.id && /^[a-zA-Z][\\w-]*$/.test(el.id)) {
+                        return `#${CSS.escape(el.id)}`;
                     }
 
-                    // Add nth-child if needed for uniqueness
+                    // 2. data-testid — stable by convention
+                    const testId = el.getAttribute('data-testid');
+                    if (testId && /^[a-zA-Z][\\w-]*$/.test(testId)) {
+                        return `[data-testid="${testId}"]`;
+                    }
+
+                    // 3. name attribute — stable for form inputs
+                    const name = el.getAttribute('name');
+                    if (name && /^[a-zA-Z][\\w-]*$/.test(name)) {
+                        return `${el.tagName.toLowerCase()}[name="${name}"]`;
+                    }
+
+                    // 4. aria-label — stable accessibility label
+                    const ariaLabel = el.getAttribute('aria-label');
+                    if (ariaLabel && ariaLabel.length > 0 && ariaLabel.length < 100) {
+                        return `${el.tagName.toLowerCase()}[aria-label="${ariaLabel}"]`;
+                    }
+
+                    // 5. aria-labelledby — reference to label element
+                    const ariaLabelledBy = el.getAttribute('aria-labelledby');
+                    if (ariaLabelledBy) {
+                        return `${el.tagName.toLowerCase()}[aria-labelledby="${ariaLabelledBy}"]`;
+                    }
+
+                    // 6. type attribute for inputs — stable
+                    const type = el.getAttribute('type');
+                    if (el.tagName.toLowerCase() === 'input' && type) {
+                        const base = `input[type="${type}"]`;
+                        // Check uniqueness
+                        if (document.querySelectorAll(base).length === 1) return base;
+                        // Add placeholder if available
+                        const placeholder = el.getAttribute('placeholder');
+                        if (placeholder && placeholder.length < 50) {
+                            const withPlaceholder = `input[type="${type}"][placeholder="${placeholder}"]`;
+                            if (document.querySelectorAll(withPlaceholder).length === 1) {
+                                return withPlaceholder;
+                            }
+                        }
+                        return base;
+                    }
+
+                    // 7. href for links — accepts both absolute and relative paths
+                    // For videos, multiple elements may share the same href (thumbnail + title)
+                    // Return href-based selector even if not unique — clicking any works
+                    if (el.tagName.toLowerCase() === 'a') {
+                        const href = el.getAttribute('href');
+                        if (href && href.length < 200 &&
+                            !href.startsWith('javascript:') &&
+                            !href.startsWith('#') &&
+                            !href.startsWith('mailto:')) {
+                            return `a[href="${href}"]`;
+                        }
+                    }
+
+                    // 8. role attribute
+                    const role = el.getAttribute('role');
+                    if (role) {
+                        const base = `[role="${role}"]`;
+                        if (document.querySelectorAll(base).length === 1) return base;
+                    }
+
+                    // 9. Class-based — ONLY stable-looking classes
+                    // Reject classes that look hashed/obfuscated:
+                    // - Single letter prefix (r-, m-, p-, c-, s-, d-)
+                    // - Starts with 'css-', 'js-', 'style-'
+                    // - Contains random-looking strings (digits mixed with letters)
+                    // - Very long class names (>25 chars)
+                    function isStableClass(cls) {
+                        if (cls.length > 25) return false;
+                        if (/^[a-z]-[a-z0-9]/.test(cls)) return false;  // r-sdzlij, m-123abc
+                        if (/^(css|js|style|emotion|tw|tw-)/.test(cls)) return false;
+                        if (/\\d{4,}/.test(cls)) return false;  // contains long number sequences
+                        return true;
+                    }
+
+                    if (el.classList.length > 0) {
+                        const stableClasses = Array.from(el.classList).filter(isStableClass);
+                        if (stableClasses.length > 0) {
+                            const classSelector = stableClasses.slice(0, 3)
+                                .map(c => CSS.escape(c))
+                                .join('.');
+                            const base = `${el.tagName.toLowerCase()}.${classSelector}`;
+                            if (document.querySelectorAll(base).length === 1) return base;
+                        }
+                    }
+
+                    // 10. Fallback: tag + nth-of-type among ALL siblings with same tag
                     const parent = el.parentElement;
                     if (parent) {
                         const siblings = Array.from(parent.children)
                             .filter(s => s.tagName === el.tagName);
-                        if (siblings.length > 1) {
-                            const idx = siblings.indexOf(el) + 1;
-                            sel += `:nth-of-type(${idx})`;
+                        if (siblings.length <= 1) {
+                            return el.tagName.toLowerCase();
                         }
+                        const idx = siblings.indexOf(el) + 1;
+                        // Build full path up to 3 levels deep for uniqueness
+                        let path = `${el.tagName.toLowerCase()}:nth-of-type(${idx})`;
+                        // Try adding parent context
+                        const parentTag = parent.tagName?.toLowerCase();
+                        if (parentTag && parentTag !== 'body' && parentTag !== 'html') {
+                            const parentSiblings = Array.from(parent.parentElement?.children || [])
+                                .filter(s => s.tagName === parent.tagName);
+                            if (parentSiblings.length <= 1) {
+                                path = `${parentTag} > ${path}`;
+                            }
+                        }
+                        // Verify uniqueness
+                        if (document.querySelectorAll(path).length === 1) return path;
                     }
 
-                    return sel;
+                    // Last resort: full path from body (max 5 levels)
+                    const path = [];
+                    let current = el;
+                    for (let i = 0; i < 5 && current && current !== document.body; i++) {
+                        const parent2 = current.parentElement;
+                        if (parent2) {
+                            const siblings2 = Array.from(parent2.children)
+                                .filter(s => s.tagName === current.tagName);
+                            const idx2 = siblings2.indexOf(current) + 1;
+                            path.unshift(`${current.tagName.toLowerCase()}:nth-of-type(${idx2})`);
+                        }
+                        current = parent2;
+                    }
+                    if (path.length > 0) {
+                        const fullPath = path.join(' > ');
+                        if (document.querySelectorAll(fullPath).length === 1) return fullPath;
+                    }
+
+                    // Absolute last resort — return something even if not unique
+                    return el.tagName.toLowerCase();
                 }
 
                 function isVisible(el) {
@@ -777,7 +892,6 @@ class PlaywrightBrowser:
 
                 // Sort by visual position (top-to-bottom, then left-to-right)
                 result.sort((a, b) => {
-                    // Group elements within 20px vertically
                     const rowDiff = Math.abs(a._visualY - b._visualY);
                     if (rowDiff < 20) return a._visualX - b._visualX;
                     return a._visualY - b._visualY;
