@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -666,12 +667,184 @@ class PlaywrightBrowser:
             return False
 
     def get_interactive_elements(self) -> list[dict[str, Any]]:
-        """Get list of all interactive elements via JavaScript evaluation.
+        """Get list of all interactive elements via Playwright's native accessibility API.
+
+        Uses page.accessibility.snapshot() which is the browser's actual accessibility tree,
+        not a custom DOM walk. This gives us proper ARIA relationships, computed accessible
+        names, and the correct role semantics.
 
         Returns list of dicts with role, name, selector, and metadata.
-        Elements are ordered by visual position (top-to-bottom, left-to-right)
-        so the model can reference "first video" meaningfully.
+        Elements are ordered by visual position (top-to-bottom, left-to-right).
         """
+        try:
+            # Get the real accessibility tree from the browser
+            snapshot = self._page.accessibility.snapshot(interesting_only=True)
+            if not snapshot:
+                return []
+
+            # Flatten the tree into a list of interactive nodes
+            nodes: list[dict] = []
+            self._flatten_a11y_tree(snapshot, nodes)
+
+            # For each node, generate a CSS selector via JS
+            elements = []
+            for node in nodes:
+                role = node.get("role", "")
+                name = node.get("name", "")
+
+                # Only include interactive or named elements
+                interactive_roles = {
+                    "button", "link", "textbox", "combobox", "searchbox",
+                    "checkbox", "radio", "listbox", "menuitem", "tab",
+                    "slider", "spinbutton", "switch", "treeitem",
+                    "menubar", "list", "listitem", "option",
+                    # Also include structural elements with names
+                    "generic", "group", "region",
+                }
+                if role not in interactive_roles and not name:
+                    continue
+
+                # Generate selector for this node
+                selector = self._generate_selector_for_node(node)
+                if not selector:
+                    continue
+
+                elements.append({
+                    "role": role,
+                    "name": name,
+                    "tagName": node.get("tagName", "").lower(),
+                    "type": node.get("properties", {}).get("type", ""),
+                    "id": node.get("properties", {}).get("id", ""),
+                    "selector": selector,
+                    "href": node.get("properties", {}).get("URL", "") or "",
+                })
+
+            # Sort by visual position (top-to-bottom, left-to-right)
+            elements_with_pos = []
+            for el in elements:
+                pos = self._get_element_position(el["selector"])
+                elements_with_pos.append((el, pos))
+
+            elements_with_pos.sort(key=lambda x: (x[1][0], x[1][1]))
+            return [el for el, _ in elements_with_pos[:80]]
+
+        except Exception as e:
+            logger.debug(f"Accessibility tree extraction failed: {e}")
+            # Fallback to JS-based extraction
+            return self._get_elements_fallback()
+
+    def _flatten_a11y_tree(self, node: dict, result: list[dict]) -> None:
+        """Recursively flatten accessibility tree nodes."""
+        if not node:
+            return
+
+        # Include this node if it has a role
+        if node.get("role"):
+            result.append(node)
+
+        # Recurse into children
+        for child in node.get("children", []):
+            self._flatten_a11y_tree(child, result)
+
+    @staticmethod
+    def _css_escape(value: str) -> str:
+        """Escape a CSS identifier value (equivalent to CSS.escape)."""
+        # Escape backslash, quotes, and special characters
+        return re.sub(r'(["\'\\])', r"\\\1", value)
+
+    def _generate_selector_for_node(self, node: dict) -> str | None:
+        """Generate a stable CSS selector for an accessibility tree node."""
+        properties = node.get("properties", {})
+
+        # 1. ID — always unique
+        node_id = properties.get("id") or properties.get("id")
+        if node_id and isinstance(node_id, str) and re.match(r"^[a-zA-Z][\w-]*$", node_id):
+            return f"#{self._css_escape(node_id)}"
+
+        # 2. data-testid
+        test_id = properties.get("data-testid")
+        if test_id and isinstance(test_id, str):
+            return f'[data-testid="{test_id}"]'
+
+        # 3. name attribute (for form inputs)
+        name_attr = properties.get("name")
+        if name_attr and isinstance(name_attr, str):
+            tag = node.get("tagName", "").lower() or "input"
+            return f'{tag}[name="{name_attr}"]'
+
+        # 4. aria-label
+        aria_label = node.get("name", "")
+        if aria_label and len(aria_label) < 100:
+            tag = node.get("tagName", "").lower() or "*"
+            return f'{tag}[aria-label="{aria_label}"]'
+
+        # 5. href for links
+        href = properties.get("URL") or properties.get("href")
+        if href and isinstance(href, str) and len(href) < 200:
+            if not href.startswith(("javascript:", "#", "mailto:")):
+                return f'a[href="{href}"]'
+
+        # 6. role-based
+        role = node.get("role", "")
+        if role and role not in ("generic", "text", "statictext", "inlineTextBox"):
+            return f'[role="{role}"]'
+
+        # 7. Fallback: use the node's bounding box to find the element
+        bbox = node.get("bounds")
+        if bbox and len(bbox) == 4 and bbox[2] > 5 and bbox[3] > 5:
+            return self._selector_from_bbox(bbox)
+
+        return None
+
+    def _selector_from_bbox(self, bbox: list) -> str | None:
+        """Find element at bounding box coordinates and return its selector."""
+        try:
+            x, y, w, h = bbox
+            cx, cy = x + w // 2, y + h // 2
+            selector = self._page.evaluate(f"""() => {{
+                const el = document.elementFromPoint({cx}, {cy});
+                if (!el) return null;
+                // Walk up to find the first interactive element
+                let current = el;
+                while (current && current !== document.body) {{
+                    if (current.matches('a[href], button, input, select, textarea, [role], [tabindex]:not([tabindex="-1"])')) {{
+                        if (current.id) return '#' + CSS.escape(current.id);
+                        const testId = current.getAttribute('data-testid');
+                        if (testId) return '[data-testid="' + testId + '"]';
+                        const name = current.getAttribute('name');
+                        if (name) return current.tagName.toLowerCase() + '[name="' + name + '"]';
+                        const href = current.getAttribute('href');
+                        if (href && href.length < 200 && !href.startsWith('#') && !href.startsWith('javascript:')) {{
+                            return 'a[href="' + href + '"]';
+                        }}
+                        return current.tagName.toLowerCase();
+                    }}
+                    current = current.parentElement;
+                }}
+                return el.id ? '#' + CSS.escape(el.id) : el.tagName.toLowerCase();
+            }}""")
+            return selector
+        except Exception:
+            return None
+
+    def _get_element_position(self, selector: str) -> tuple[int, int]:
+        """Get visual position (y, x) of element matching selector."""
+        try:
+            result = self._page.evaluate(
+                "() => { const el = document.querySelector(arguments[0]); "
+                "if (!el) return [99999, 99999]; "
+                "const rect = el.getBoundingClientRect(); "
+                "return [Math.round(rect.top), Math.round(rect.left)]; }",
+                selector,
+            )
+            if result and len(result) == 2:
+                return (result[0], result[1])
+        except Exception:
+            pass
+        return (99999, 99999)
+
+    def _get_elements_fallback(self) -> list[dict[str, Any]]:
+        """Fallback JS-based element extraction when a11y API fails."""
         try:
             elements = self._page.evaluate("""() => {
                 const interactiveSelectors = [
@@ -689,63 +862,27 @@ class PlaywrightBrowser:
                 const result = [];
                 const seen = new Set();
 
-                /**
-                 * Generate a UNIQUE, STABLE CSS selector for an element.
-                 * Strategy: id > data-testid > name > aria-label > role+text > nth-child
-                 * Only uses stable attributes — NEVER hashed/obfuscated classes.
-                 */
                 function generateSelector(el) {
                     if (!el || el === document.documentElement) return 'html';
-
-                    // 1. ID — always unique
                     if (el.id && /^[a-zA-Z][\\w-]*$/.test(el.id)) {
                         return `#${CSS.escape(el.id)}`;
                     }
-
-                    // 2. data-testid — stable by convention
                     const testId = el.getAttribute('data-testid');
                     if (testId && /^[a-zA-Z][\\w-]*$/.test(testId)) {
                         return `[data-testid="${testId}"]`;
                     }
-
-                    // 3. name attribute — stable for form inputs
                     const name = el.getAttribute('name');
                     if (name && /^[a-zA-Z][\\w-]*$/.test(name)) {
                         return `${el.tagName.toLowerCase()}[name="${name}"]`;
                     }
-
-                    // 4. aria-label — stable accessibility label
                     const ariaLabel = el.getAttribute('aria-label');
                     if (ariaLabel && ariaLabel.length > 0 && ariaLabel.length < 100) {
                         return `${el.tagName.toLowerCase()}[aria-label="${ariaLabel}"]`;
                     }
-
-                    // 5. aria-labelledby — reference to label element
-                    const ariaLabelledBy = el.getAttribute('aria-labelledby');
-                    if (ariaLabelledBy) {
-                        return `${el.tagName.toLowerCase()}[aria-labelledby="${ariaLabelledBy}"]`;
-                    }
-
-                    // 6. type attribute for inputs — stable
                     const type = el.getAttribute('type');
                     if (el.tagName.toLowerCase() === 'input' && type) {
-                        const base = `input[type="${type}"]`;
-                        // Check uniqueness
-                        if (document.querySelectorAll(base).length === 1) return base;
-                        // Add placeholder if available
-                        const placeholder = el.getAttribute('placeholder');
-                        if (placeholder && placeholder.length < 50) {
-                            const withPlaceholder = `input[type="${type}"][placeholder="${placeholder}"]`;
-                            if (document.querySelectorAll(withPlaceholder).length === 1) {
-                                return withPlaceholder;
-                            }
-                        }
-                        return base;
+                        return `input[type="${type}"]`;
                     }
-
-                    // 7. href for links — accepts both absolute and relative paths
-                    // For videos, multiple elements may share the same href (thumbnail + title)
-                    // Return href-based selector even if not unique — clicking any works
                     if (el.tagName.toLowerCase() === 'a') {
                         const href = el.getAttribute('href');
                         if (href && href.length < 200 &&
@@ -755,82 +892,6 @@ class PlaywrightBrowser:
                             return `a[href="${href}"]`;
                         }
                     }
-
-                    // 8. role attribute
-                    const role = el.getAttribute('role');
-                    if (role) {
-                        const base = `[role="${role}"]`;
-                        if (document.querySelectorAll(base).length === 1) return base;
-                    }
-
-                    // 9. Class-based — ONLY stable-looking classes
-                    // Reject classes that look hashed/obfuscated:
-                    // - Single letter prefix (r-, m-, p-, c-, s-, d-)
-                    // - Starts with 'css-', 'js-', 'style-'
-                    // - Contains random-looking strings (digits mixed with letters)
-                    // - Very long class names (>25 chars)
-                    function isStableClass(cls) {
-                        if (cls.length > 25) return false;
-                        if (/^[a-z]-[a-z0-9]/.test(cls)) return false;  // r-sdzlij, m-123abc
-                        if (/^(css|js|style|emotion|tw|tw-)/.test(cls)) return false;
-                        if (/\\d{4,}/.test(cls)) return false;  // contains long number sequences
-                        return true;
-                    }
-
-                    if (el.classList.length > 0) {
-                        const stableClasses = Array.from(el.classList).filter(isStableClass);
-                        if (stableClasses.length > 0) {
-                            const classSelector = stableClasses.slice(0, 3)
-                                .map(c => CSS.escape(c))
-                                .join('.');
-                            const base = `${el.tagName.toLowerCase()}.${classSelector}`;
-                            if (document.querySelectorAll(base).length === 1) return base;
-                        }
-                    }
-
-                    // 10. Fallback: tag + nth-of-type among ALL siblings with same tag
-                    const parent = el.parentElement;
-                    if (parent) {
-                        const siblings = Array.from(parent.children)
-                            .filter(s => s.tagName === el.tagName);
-                        if (siblings.length <= 1) {
-                            return el.tagName.toLowerCase();
-                        }
-                        const idx = siblings.indexOf(el) + 1;
-                        // Build full path up to 3 levels deep for uniqueness
-                        let path = `${el.tagName.toLowerCase()}:nth-of-type(${idx})`;
-                        // Try adding parent context
-                        const parentTag = parent.tagName?.toLowerCase();
-                        if (parentTag && parentTag !== 'body' && parentTag !== 'html') {
-                            const parentSiblings = Array.from(parent.parentElement?.children || [])
-                                .filter(s => s.tagName === parent.tagName);
-                            if (parentSiblings.length <= 1) {
-                                path = `${parentTag} > ${path}`;
-                            }
-                        }
-                        // Verify uniqueness
-                        if (document.querySelectorAll(path).length === 1) return path;
-                    }
-
-                    // Last resort: full path from body (max 5 levels)
-                    const path = [];
-                    let current = el;
-                    for (let i = 0; i < 5 && current && current !== document.body; i++) {
-                        const parent2 = current.parentElement;
-                        if (parent2) {
-                            const siblings2 = Array.from(parent2.children)
-                                .filter(s => s.tagName === current.tagName);
-                            const idx2 = siblings2.indexOf(current) + 1;
-                            path.unshift(`${current.tagName.toLowerCase()}:nth-of-type(${idx2})`);
-                        }
-                        current = parent2;
-                    }
-                    if (path.length > 0) {
-                        const fullPath = path.join(' > ');
-                        if (document.querySelectorAll(fullPath).length === 1) return fullPath;
-                    }
-
-                    // Absolute last resort — return something even if not unique
                     return el.tagName.toLowerCase();
                 }
 
@@ -847,65 +908,43 @@ class PlaywrightBrowser:
                     return rect.width > 5 && rect.height > 5;
                 }
 
-                function getVisualPosition(el) {
-                    const rect = el.getBoundingClientRect();
-                    return {
-                        top: rect.top,
-                        left: rect.left,
-                        y: Math.round(rect.top),
-                        x: Math.round(rect.left)
-                    };
-                }
-
                 allElements.forEach((el) => {
-                    if (!isVisible(el)) return;
-                    if (seen.has(el)) return;
+                    if (!isVisible(el) || seen.has(el)) return;
                     seen.add(el);
 
-                    const role = el.getAttribute('role') ||
-                                 el.tagName.toLowerCase() ||
-                                 'unknown';
+                    const role = el.getAttribute('role') || el.tagName.toLowerCase() || 'unknown';
                     const name = el.getAttribute('aria-label') ||
-                                 el.getAttribute('aria-labelledby') ||
                                  el.getAttribute('placeholder') ||
                                  el.getAttribute('title') ||
-                                 el.getAttribute('alt') ||
-                                 el.textContent?.trim().slice(0, 80) ||
-                                 el.id ||
-                                 '';
-
+                                 el.textContent?.trim().slice(0, 80) || '';
                     const sel = generateSelector(el);
-                    const pos = getVisualPosition(el);
+                    const rect = el.getBoundingClientRect();
 
                     result.push({
-                        role: role,
-                        name: name,
+                        role, name,
                         tagName: el.tagName.toLowerCase(),
                         type: el.getAttribute('type') || '',
                         id: el.id || '',
                         selector: sel,
                         href: el.getAttribute('href') || '',
-                        _visualY: pos.y,
-                        _visualX: pos.x
+                        _y: Math.round(rect.top),
+                        _x: Math.round(rect.left)
                     });
                 });
 
-                // Sort by visual position (top-to-bottom, then left-to-right)
                 result.sort((a, b) => {
-                    const rowDiff = Math.abs(a._visualY - b._visualY);
-                    if (rowDiff < 20) return a._visualX - b._visualX;
-                    return a._visualY - b._visualY;
+                    if (Math.abs(a._y - b._y) < 20) return a._x - b._x;
+                    return a._y - b._y;
                 });
 
-                // Remove visual position metadata from output
                 return result.slice(0, 80).map(el => {
-                    const { _visualY, _visualX, ...rest } = el;
+                    const { _y, _x, ...rest } = el;
                     return rest;
                 });
             }""")
             return elements or []
         except Exception as e:
-            logger.debug(f"Failed to get interactive elements: {e}")
+            logger.debug(f"Fallback element extraction failed: {e}")
             return []
 
     def get_page_summary(self) -> dict[str, Any]:
